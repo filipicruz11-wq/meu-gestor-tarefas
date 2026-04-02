@@ -25,10 +25,12 @@ inicializar_db()
 # --- ESTADOS DO SISTEMA ---
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
+
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_data' not in st.session_state: st.session_state.val_data = datetime.now().date()
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
+
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
 def limpar_tudo():
@@ -39,28 +41,25 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS CUSTOMIZADA ---
+# --- ESTILIZAÇÃO CSS ---
 st.markdown("""
     <style>
-    /* Estilo dos campos de entrada */
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
     }
-    
-    /* Compactar a lista: remove margens dos expanders e das linhas divisórias */
+    /* Ajuste para alinhar verticalmente os textos nas colunas */
+    div[data-testid="column"] {
+        display: flex;
+        align-items: center;
+    }
+    /* ALTERAÇÃO 2: Diminuir espaços entre as linhas */
     .stExpander {
         margin-bottom: -15px !important;
     }
     hr {
         margin-top: 5px !important;
         margin-bottom: 5px !important;
-    }
-    
-    /* Alinhamento de fonte monoespaçada para manter as colunas verticais alinhadas */
-    .compact-text {
-        font-family: 'Courier New', Courier, monospace;
-        white-space: pre;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -79,6 +78,7 @@ else:
     # --- BARRA LATERAL ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
+        
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
@@ -103,6 +103,7 @@ else:
                 st.success("Salvo!")
                 limpar_tudo()
                 st.rerun()
+        
         if c2.button("🧹 Limpar", use_container_width=True):
             limpar_tudo()
             st.rerun()
@@ -121,19 +122,21 @@ else:
         dif = (dv - hoje).days
         if dif <= 0: return "red", "🔴 VENCIDO"
         elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
-        else: return "blue", "🔵 FUTURO "
+        else: return "blue", "🔵 FUTURO"
 
-    # Aba Dashboard - GRÁFICO SEM EIXO X
+    # Aba Dashboard
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
         ordem_categorias = ["3+ dias", "2 dias", "Vencido"]
+
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
             cts = {"red": 0, "gold": 0, "blue": 0}
             for d in dff['data']:
                 cor, _ = obter_estilo(d)
                 cts[cor] += 1
+            
             fig = go.Figure(go.Bar(
                 x=[cts["red"], cts["gold"], cts["blue"]],
                 y=["Vencido", "2 dias", "3+ dias"],
@@ -147,14 +150,13 @@ else:
                 title=f"{nome}S: {len(dff)}", 
                 height=250, 
                 margin=dict(l=10, r=50, t=40, b=10),
-                # REMOVE OS NÚMEROS DO EIXO X (A parte circulada em vermelho na sua imagem)
                 xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
                 yaxis=dict(categoryorder='array', categoryarray=ordem_categorias)
             )
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
-    # --- LISTA COM ALINHAMENTO E COMPACTAÇÃO ---
+    # --- LISTA COM ALTERAÇÕES ---
     def listar(tipo_nome, tab):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
@@ -163,22 +165,17 @@ else:
                 for _, row in dff.iterrows():
                     cor_hex, texto_status = obter_estilo(row['data'])
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
-                    
-                    # Nomes dos dias com espaços fixos para alinhar as colunas verticais
-                    dias = {
-                        "Monday":    "SEGUNDA ", "Tuesday":   "TERÇA   ", "Wednesday": "QUARTA  ", 
-                        "Thursday":  "QUINTA  ", "Friday":    "SEXTA   ", "Saturday":  "SÁBADO  ", 
-                        "Sunday":    "DOMINGO "
-                    }
+                    dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
                     dia_pt = dias[dt.strftime('%A')]
                     data_f = dt.strftime('%d/%m/%Y')
                     
-                    c_main, c_ed, c_del = st.columns([0.86, 0.07, 0.07])
+                    # ALTERAÇÃO 1: Expander no início envolvendo toda a linha informativa
+                    c_info, c_ed, c_del = st.columns([0.85, 0.075, 0.075])
                     
-                    with c_main:
-                        # Criando o rótulo alinhado com espaços manuais
-                        label_texto = f"{texto_status} | {dia_pt} | {data_f} | **{row['assunto']}**"
-                        with st.expander(label_texto):
+                    with c_info:
+                        # O rótulo do expander agora contém todas as colunas de texto
+                        label_linha = f"{texto_status} | {dia_pt} | {data_f} | **{row['assunto']}**"
+                        with st.expander(label_linha):
                             st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
                     
                     if c_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
@@ -189,6 +186,7 @@ else:
                         st.session_state.val_desc = row['descricao']
                         st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
+                        
                     if c_del.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
