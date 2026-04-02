@@ -26,22 +26,22 @@ inicializar_db()
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 
-# Esta chave controla o reset visual dos campos
-if 'reset_key' not in st.session_state: st.session_state.reset_key = 0
-
-# Variáveis para armazenar os dados temporariamente
+# Variáveis para armazenar os dados dos campos
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_data' not in st.session_state: st.session_state.val_data = datetime.now().date()
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
 
-def acao_limpar():
+# A chave dinâmica que força a atualização dos campos
+if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
+
+def limpar_tudo():
     st.session_state.editando_id = None
     st.session_state.val_tipo = ""
     st.session_state.val_data = datetime.now().date()
     st.session_state.val_assunto = ""
     st.session_state.val_desc = ""
-    st.session_state.reset_key += 1 # O segredo: mudar a key força o reset total
+    st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
 # --- ESTILIZAÇÃO CSS ---
 st.markdown("""
@@ -64,18 +64,18 @@ if not st.session_state.logado:
             st.rerun()
         else: st.error("Dados incorretos.")
 else:
-    # --- BARRA LATERAL (CADASTRO/EDIÇÃO) ---
+    # --- BARRA LATERAL ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
-        # Adicionamos a reset_key no nome de cada campo (key)
-        tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"tipo_{st.session_state.reset_key}")
-        data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"data_{st.session_state.reset_key}")
-        assunto = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"assunto_{st.session_state.reset_key}")
-        desc = st.text_area("Descrição", value=st.session_state.val_desc, key=f"desc_{st.session_state.reset_key}")
+        # O segredo: A 'key' muda sempre que clicamos em Editar ou Limpar
+        tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
+        data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
+        assunto = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
+        desc = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
         
         c1, c2 = st.columns(2)
         if c1.button("✅ Salvar", use_container_width=True):
@@ -91,14 +91,14 @@ else:
                                    {"t": tipo, "d": str(data_venc), "a": assunto, "de": desc})
                     conn.commit()
                 st.success("Salvo!")
-                acao_limpar() # Limpa após salvar
+                limpar_tudo()
                 st.rerun()
         
         if c2.button("🧹 Limpar", use_container_width=True):
-            acao_limpar()
+            limpar_tudo()
             st.rerun()
 
-    # --- ABAS E CONTEÚDO ---
+    # --- ABAS ---
     t_dash, t_lem, t_com = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS"])
     
     try:
@@ -120,21 +120,15 @@ else:
         col_l, col_c = st.columns(2)
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
-            total = len(dff)
             cts = {"red": 0, "gold": 0, "blue": 0}
             for d in dff['data']:
                 cor, _ = obter_estilo(d)
                 cts[cor] += 1
-            
-            fig = go.Figure(go.Bar(
-                x=[cts["red"], cts["gold"], cts["blue"]],
-                y=["Vencido", "2 dias", "3+ dias"],
-                orientation='h',
-                marker_color=["red", "gold", "blue"],
-                text=[cts["red"], cts["gold"], cts["blue"]],
-                textposition='outside'
-            ))
-            fig.update_layout(title=f"{nome}S: {total}", height=250, margin=dict(l=10, r=40, t=40, b=10))
+            fig = go.Figure(go.Bar(x=[cts["red"], cts["gold"], cts["blue"]],
+                                   y=["Vencido", "2 dias", "3+ dias"],
+                                   orientation='h', marker_color=["red", "gold", "blue"],
+                                   text=[cts["red"], cts["gold"], cts["blue"]], textposition='outside'))
+            fig.update_layout(title=f"{nome}S: {len(dff)}", height=250, margin=dict(l=10, r=40, t=40, b=10))
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
@@ -148,22 +142,22 @@ else:
                     cor_hex, texto_status = obter_estilo(row['data'])
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
                     dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
-                    dia_pt = dias[dt.strftime('%A')]
-                    data_f = dt.strftime('%d/%m/%Y')
                     
                     col_info, col_ed, col_del = st.columns([0.8, 0.1, 0.1])
                     with col_info:
-                        label = f"{texto_status} | {dia_pt} | {data_f} | **{row['assunto']}**"
+                        label = f"{texto_status} | {dias[dt.strftime('%A')]} | {dt.strftime('%d/%m/%Y')} | **{row['assunto']}**"
                         with st.expander(label):
                             st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
                     
                     if col_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
-                        # Carregamos os dados e NÃO mudamos a reset_key aqui para permitir a edição
+                        # CARREGA OS DADOS
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
                         st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
                         st.session_state.val_assunto = row['assunto']
                         st.session_state.val_desc = row['descricao']
+                        # GERA NOVA KEY PARA FORÇAR O CARREGAMENTO NO FORMULÁRIO
+                        st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
                         
                     if col_del.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
