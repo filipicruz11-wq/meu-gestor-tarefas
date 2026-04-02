@@ -39,20 +39,28 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS PARA COMPACTAR LINHAS ---
+# --- ESTILIZAÇÃO CSS CUSTOMIZADA ---
 st.markdown("""
     <style>
+    /* Estilo dos campos de entrada */
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
     }
-    /* Diminuir o espaço entre as linhas da lista */
+    
+    /* Compactar a lista: remove margens dos expanders e das linhas divisórias */
     .stExpander {
         margin-bottom: -15px !important;
     }
     hr {
         margin-top: 5px !important;
         margin-bottom: 5px !important;
+    }
+    
+    /* Alinhamento de fonte monoespaçada para manter as colunas verticais alinhadas */
+    .compact-text {
+        font-family: 'Courier New', Courier, monospace;
+        white-space: pre;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -113,9 +121,9 @@ else:
         dif = (dv - hoje).days
         if dif <= 0: return "red", "🔴 VENCIDO"
         elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
-        else: return "blue", "🔵 FUTURO"
+        else: return "blue", "🔵 FUTURO "
 
-    # Dash (Gráficos)
+    # Aba Dashboard - GRÁFICO SEM EIXO X
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
@@ -139,13 +147,14 @@ else:
                 title=f"{nome}S: {len(dff)}", 
                 height=250, 
                 margin=dict(l=10, r=50, t=40, b=10),
+                # REMOVE OS NÚMEROS DO EIXO X (A parte circulada em vermelho na sua imagem)
                 xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
                 yaxis=dict(categoryorder='array', categoryarray=ordem_categorias)
             )
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
-    # --- LISTA COMPACTA COM EXPANDER NO INÍCIO ---
+    # --- LISTA COM ALINHAMENTO E COMPACTAÇÃO ---
     def listar(tipo_nome, tab):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
@@ -154,21 +163,24 @@ else:
                 for _, row in dff.iterrows():
                     cor_hex, texto_status = obter_estilo(row['data'])
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
-                    dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
+                    
+                    # Nomes dos dias com espaços fixos para alinhar as colunas verticais
+                    dias = {
+                        "Monday":    "SEGUNDA ", "Tuesday":   "TERÇA   ", "Wednesday": "QUARTA  ", 
+                        "Thursday":  "QUINTA  ", "Friday":    "SEXTA   ", "Saturday":  "SÁBADO  ", 
+                        "Sunday":    "DOMINGO "
+                    }
                     dia_pt = dias[dt.strftime('%A')]
                     data_f = dt.strftime('%d/%m/%Y')
                     
-                    # Coluna principal com o Expander e Colunas de Ação
                     c_main, c_ed, c_del = st.columns([0.86, 0.07, 0.07])
                     
                     with c_main:
-                        # O expander agora engloba toda a informação da linha
-                        # Usei colunas dentro do label para aproximar os dados
-                        label_texto = f"{texto_status}  |  {dia_pt}  |  {data_f}  |  **{row['assunto']}**"
+                        # Criando o rótulo alinhado com espaços manuais
+                        label_texto = f"{texto_status} | {dia_pt} | {data_f} | **{row['assunto']}**"
                         with st.expander(label_texto):
                             st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
                     
-                    # Botões de Editar e Excluir
                     if c_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
