@@ -26,13 +26,11 @@ inicializar_db()
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 
-# Variáveis para armazenar os dados dos campos
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_data' not in st.session_state: st.session_state.val_data = datetime.now().date()
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
 
-# A chave dinâmica que força a atualização dos campos
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
 def limpar_tudo():
@@ -71,7 +69,6 @@ else:
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
-        # O segredo: A 'key' muda sempre que clicamos em Editar ou Limpar
         tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
         data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
         assunto = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
@@ -114,21 +111,41 @@ else:
         elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
         else: return "blue", "🔵 FUTURO"
 
-    # Dashboard
+    # Aba Dashboard
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
+        
+        # Ordem fixa para as cores: Vermelho no topo, Amarelo no meio, Azul embaixo
+        ordem_categorias = ["3+ dias", "2 dias", "Vencido"]
+        cores_map = ["blue", "gold", "red"]
+
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
             cts = {"red": 0, "gold": 0, "blue": 0}
             for d in dff['data']:
                 cor, _ = obter_estilo(d)
                 cts[cor] += 1
-            fig = go.Figure(go.Bar(x=[cts["red"], cts["gold"], cts["blue"]],
-                                   y=["Vencido", "2 dias", "3+ dias"],
-                                   orientation='h', marker_color=["red", "gold", "blue"],
-                                   text=[cts["red"], cts["gold"], cts["blue"]], textposition='outside'))
-            fig.update_layout(title=f"{nome}S: {len(dff)}", height=250, margin=dict(l=10, r=40, t=40, b=10))
+            
+            # Gráfico ajustado
+            fig = go.Figure(go.Bar(
+                x=[cts["red"], cts["gold"], cts["blue"]],
+                y=["Vencido", "2 dias", "3+ dias"],
+                orientation='h',
+                marker_color=["red", "gold", "blue"],
+                text=[cts["red"], cts["gold"], cts["blue"]], 
+                textposition='outside',
+                cliponaxis=False # Garante que o número não seja cortado
+            ))
+            
+            fig.update_layout(
+                title=f"{nome}S: {len(dff)}", 
+                height=250, 
+                margin=dict(l=10, r=50, t=40, b=10),
+                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False), # Remove números e grades do fundo
+                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias) # Fixa a ordem das cores
+            )
+            
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
@@ -150,13 +167,11 @@ else:
                             st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
                     
                     if col_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
-                        # CARREGA OS DADOS
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
                         st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
                         st.session_state.val_assunto = row['assunto']
                         st.session_state.val_desc = row['descricao']
-                        # GERA NOVA KEY PARA FORÇAR O CARREGAMENTO NO FORMULÁRIO
                         st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
                         
