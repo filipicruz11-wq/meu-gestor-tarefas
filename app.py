@@ -13,9 +13,10 @@ engine = create_engine(DB_URL)
 
 def inicializar_db():
     with engine.connect() as conn:
+        # Mudamos o nome da coluna para 'prazo' para evitar conflito com a palavra reservada 'data'
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS tarefas (
-                id SERIAL PRIMARY KEY, tipo TEXT, data TEXT, assunto TEXT, descricao TEXT
+                id SERIAL PRIMARY KEY, tipo TEXT, prazo TEXT, assunto TEXT, descricao TEXT
             )
         """))
         conn.commit()
@@ -26,7 +27,7 @@ inicializar_db()
 @st.dialog("Detalhes da Atividade")
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
-    st.write(descricao if descricao else "Sem descrição disponível.")
+    st.write(str(descricao) if descricao else "Sem descrição disponível.")
     if st.button("Fechar", width="stretch"):
         st.rerun()
 
@@ -35,7 +36,7 @@ if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
-if 'val_data' not in st.session_state: st.session_state.val_data = datetime.now().date()
+if 'val_prazo' not in st.session_state: st.session_state.val_prazo = datetime.now().date()
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
 
@@ -44,36 +45,22 @@ if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 def limpar_tudo():
     st.session_state.editando_id = None
     st.session_state.val_tipo = ""
-    st.session_state.val_data = datetime.now().date()
+    st.session_state.val_prazo = datetime.now().date()
     st.session_state.val_assunto = ""
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS (COM TRAVA PARA O CORRETOR DO NAVEGADOR) ---
+# --- ESTILIZAÇÃO CSS ---
 st.markdown("""
     <style>
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
     }
-    
-    /* Desativa visualmente sugestões de correção ortográfica do navegador */
-    textarea {
-        spellcheck: false !important;
-    }
-
-    [data-testid="column"] {
-        display: flex;
-        align-items: center;
-    }
-    hr {
-        margin-top: 5px !important;
-        margin-bottom: 5px !important;
-    }
-    .stButton button {
-        text-align: left !important;
-        padding-left: 0px !important;
-    }
+    textarea { spellcheck: false !important; }
+    [data-testid="column"] { display: flex; align-items: center; }
+    hr { margin-top: 5px !important; margin-bottom: 5px !important; }
+    .stButton button { text-align: left !important; padding-left: 0px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -94,29 +81,30 @@ else:
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
-        tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
+        tipo_selecionado = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
         
-        tipos_sem_data = ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
-        if tipo not in tipos_sem_data:
-            data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
+        tipos_sem_prazo = ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
+        if tipo_selecionado not in tipos_sem_prazo:
+            data_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
         else:
             data_venc = datetime.now().date()
             
-        assunto = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
-        desc = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
+        assunto_input = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
+        desc_input = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
         
         c1, c2 = st.columns(2)
         if c1.button("✅ Salvar", width="stretch"):
-            if not tipo or not assunto:
+            if not tipo_selecionado or not assunto_input:
                 st.error("Preencha Tipo e Assunto!")
             else:
                 with engine.connect() as conn:
+                    # Usamos explicitamente str() para garantir que o texto seja tratado como texto puro
+                    params = {"t": tipo_selecionado, "p": str(data_venc), "a": str(assunto_input), "de": str(desc_input)}
                     if st.session_state.editando_id:
-                        conn.execute(text("UPDATE tarefas SET tipo=:t, data=:d, assunto=:a, descricao=:de WHERE id=:i"),
-                                   {"t": tipo, "d": str(data_venc), "a": assunto, "de": desc, "i": st.session_state.editando_id})
+                        params["i"] = st.session_state.editando_id
+                        conn.execute(text("UPDATE tarefas SET tipo=:t, prazo=:p, assunto=:a, descricao=:de WHERE id=:i"), params)
                     else:
-                        conn.execute(text("INSERT INTO tarefas (tipo, data, assunto, descricao) VALUES (:t, :d, :a, :de)"),
-                                   {"t": tipo, "d": str(data_venc), "a": assunto, "de": desc})
+                        conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), params)
                     conn.commit()
                 st.success("Salvo!")
                 limpar_tudo()
@@ -126,7 +114,7 @@ else:
             limpar_tudo()
             st.rerun()
 
-    # ABAS DO SISTEMA
+    # ABAS
     t_dash, t_lem, t_com, t_info, t_cont, t_aud = st.tabs([
         "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS"
     ])
@@ -134,10 +122,10 @@ else:
     try:
         df = pd.read_sql("SELECT * FROM tarefas", engine)
     except:
-        df = pd.DataFrame(columns=['id', 'tipo', 'data', 'assunto', 'descricao'])
+        df = pd.DataFrame(columns=['id', 'tipo', 'prazo', 'assunto', 'descricao'])
 
-    def obter_estilo(data_str):
-        dv = datetime.strptime(data_str, '%Y-%m-%d').date()
+    def obter_estilo(prazo_str):
+        dv = datetime.strptime(prazo_str, '%Y-%m-%d').date()
         hoje = datetime.now().date()
         dif = (dv - hoje).days
         if dif <= 0: return "red", "🔴 VENCIDO"
@@ -147,13 +135,11 @@ else:
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
-        ordem_categorias = ["3+ dias", "2 dias", "Vencido"]
-
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
             cts = {"red": 0, "gold": 0, "blue": 0}
-            for d in dff['data']:
-                cor, _ = obter_estilo(d)
+            for p in dff['prazo']:
+                cor, _ = obter_estilo(p)
                 cts[cor] += 1
             
             fig = go.Figure(go.Bar(
@@ -162,56 +148,41 @@ else:
                 orientation='h',
                 marker_color=["red", "gold", "blue"],
                 text=[cts["red"], cts["gold"], cts["blue"]], 
-                textposition='outside',
-                cliponaxis=False 
+                textposition='outside'
             ))
-            fig.update_layout(
-                title=f"{nome}S: {len(dff)}", 
-                height=250, 
-                margin=dict(l=10, r=50, t=40, b=10),
-                xaxis=dict(visible=False),
-                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias, showgrid=False)
-            )
-            if i == 0: col_l.plotly_chart(fig, width="stretch")
-            else: col_c.plotly_chart(fig, width="stretch")
+            fig.update_layout(title=f"{nome}S", height=250, margin=dict(l=10, r=50, t=40, b=10), xaxis=dict(visible=False))
+            if i == 0: col_l.plotly_chart(fig, use_container_width=True)
+            else: col_c.plotly_chart(fig, use_container_width=True)
 
     def listar(tipo_nome, tab):
         with tab:
-            dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
-            if dff.empty: st.info(f"Nenhum {tipo_nome.lower()} encontrado.")
+            dff = df[df['tipo'] == tipo_nome].sort_values(by='prazo')
+            if dff.empty: st.info(f"Nenhum item em {tipo_nome.lower()}.")
             else:
-                h1, h2, h3, h4, h5, h6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
-                h1.caption("STATUS")
-                h2.caption("DIA")
-                h3.caption("DATA")
-                h4.caption("ASSUNTO")
+                st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                 st.markdown("---")
-
                 for _, row in dff.iterrows():
-                    cor_hex, texto_status = obter_estilo(row['data'])
-                    dt = datetime.strptime(row['data'], '%Y-%m-%d')
+                    cor_hex, texto_status = obter_estilo(row['prazo'])
+                    dt = datetime.strptime(row['prazo'], '%Y-%m-%d')
                     dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
-                    dia_pt = dias[dt.strftime('%A')]
-                    data_f = dt.strftime('%d/%m/%Y')
                     
                     c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                     c1.write(texto_status)
-                    c2.write(dia_pt)
-                    c3.write(data_f)
-                    
-                    if c4.button(f"**{row['assunto']}**", key=f"btn_{row['id']}", width="stretch"):
+                    c2.write(dias[dt.strftime('%A')])
+                    c3.write(dt.strftime('%d/%m/%Y'))
+                    if c4.button(f"**{row['assunto']}**", key=f"b_{row['id']}", width="stretch"):
                         exibir_detalhes(row['assunto'], row['descricao'])
                     
-                    if c5.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
+                    if c5.button("📝", key=f"e_{row['id']}"):
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
-                        st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
+                        st.session_state.val_prazo = datetime.strptime(row['prazo'], '%Y-%m-%d').date()
                         st.session_state.val_assunto = row['assunto']
                         st.session_state.val_desc = row['descricao']
-                        st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
+                        st.session_state.campo_key = f"ed_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
                         
-                    if c6.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
+                    if c6.button("🗑️", key=f"d_{row['id']}"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
                             conn.commit()
@@ -221,34 +192,26 @@ else:
     def listar_simplificado(tipo_nome, tab, icone="📌"):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='assunto')
-            if dff.empty: st.info(f"Nada encontrado em {tipo_nome.lower()}s.")
+            if dff.empty: st.info(f"Nada em {tipo_nome.lower()}.")
             else:
-                h1, h2, h3 = st.columns([0.85, 0.075, 0.075])
-                h1.caption("ASSUNTO (Clique para ver detalhes)")
-                st.markdown("---")
-
                 for _, row in dff.iterrows():
                     c1, c2, c3 = st.columns([0.85, 0.075, 0.075])
-                    
-                    if c1.button(f"{icone} **{row['assunto']}**", key=f"btn_{tipo_nome}_{row['id']}", width="stretch"):
+                    if c1.button(f"{icone} **{row['assunto']}**", key=f"bs_{row['id']}", width="stretch"):
                         exibir_detalhes(row['assunto'], row['descricao'])
-                    
-                    if c2.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
+                    if c2.button("📝", key=f"es_{row['id']}"):
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
                         st.session_state.val_assunto = row['assunto']
                         st.session_state.val_desc = row['descricao']
-                        st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
+                        st.session_state.campo_key = f"eds_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
-                        
-                    if c3.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
+                    if c3.button("🗑️", key=f"ds_{row['id']}"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
                             conn.commit()
                         st.rerun()
                     st.markdown("---")
 
-    # Chamada das listas nas respectivas abas
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
     listar_simplificado("INFORMAÇÃO", t_info, icone="📌")
