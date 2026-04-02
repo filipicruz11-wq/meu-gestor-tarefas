@@ -25,12 +25,10 @@ inicializar_db()
 # --- ESTADOS DO SISTEMA ---
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
-
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_data' not in st.session_state: st.session_state.val_data = datetime.now().date()
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
-
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
 def limpar_tudo():
@@ -48,6 +46,8 @@ st.markdown("""
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
     }
+    /* Estilo para remover o contorno do expander e melhorar alinhamento */
+    .stExpander { border: none !important; box-shadow: none !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -65,7 +65,6 @@ else:
     # --- BARRA LATERAL ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
-        
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
@@ -111,14 +110,11 @@ else:
         elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
         else: return "blue", "🔵 FUTURO"
 
-    # Aba Dashboard
+    # Dashboard
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
-        
-        # Ordem fixa para as cores: Vermelho no topo, Amarelo no meio, Azul embaixo
         ordem_categorias = ["3+ dias", "2 dias", "Vencido"]
-        cores_map = ["blue", "gold", "red"]
 
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
@@ -127,7 +123,6 @@ else:
                 cor, _ = obter_estilo(d)
                 cts[cor] += 1
             
-            # Gráfico ajustado
             fig = go.Figure(go.Bar(
                 x=[cts["red"], cts["gold"], cts["blue"]],
                 y=["Vencido", "2 dias", "3+ dias"],
@@ -135,21 +130,19 @@ else:
                 marker_color=["red", "gold", "blue"],
                 text=[cts["red"], cts["gold"], cts["blue"]], 
                 textposition='outside',
-                cliponaxis=False # Garante que o número não seja cortado
+                cliponaxis=False
             ))
-            
             fig.update_layout(
                 title=f"{nome}S: {len(dff)}", 
                 height=250, 
                 margin=dict(l=10, r=50, t=40, b=10),
-                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False), # Remove números e grades do fundo
-                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias) # Fixa a ordem das cores
+                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias)
             )
-            
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
-    # Listas
+    # --- LISTAS COM ALINHAMENTO DE COLUNAS ---
     def listar(tipo_nome, tab):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
@@ -159,27 +152,43 @@ else:
                     cor_hex, texto_status = obter_estilo(row['data'])
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
                     dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
+                    dia_pt = dias[dt.strftime('%A')]
+                    data_f = dt.strftime('%d/%m/%Y')
                     
-                    col_info, col_ed, col_del = st.columns([0.8, 0.1, 0.1])
-                    with col_info:
-                        label = f"{texto_status} | {dias[dt.strftime('%A')]} | {dt.strftime('%d/%m/%Y')} | **{row['assunto']}**"
-                        with st.expander(label):
-                            st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
+                    # Criamos uma estrutura de colunas para alinhar cada campo
+                    # C1: Expander com os dados / C2: Botão Editar / C3: Botão Excluir
+                    c_exp, c_ed, c_del = st.columns([0.84, 0.08, 0.08])
                     
-                    if col_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
-                        st.session_state.editando_id = row['id']
-                        st.session_state.val_tipo = row['tipo']
-                        st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
-                        st.session_state.val_assunto = row['assunto']
-                        st.session_state.val_desc = row['descricao']
-                        st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
-                        st.rerun()
-                        
-                    if col_del.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
-                        with engine.connect() as conn:
-                            conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
-                            conn.commit()
-                        st.rerun()
+                    with c_exp:
+                        # Criamos colunas INTERNAS no expander para alinhar os textos
+                        # Isso garante que a barra '|' fique sempre no mesmo lugar
+                        col1, col2, col3, col4 = st.columns([0.22, 0.18, 0.18, 0.42])
+                        with col1: st.write(texto_status)
+                        with col2: st.write(f"| {dia_pt}")
+                        with col3: st.write(f"| {data_f}")
+                        with col4: 
+                            # O assunto vai dentro de um expander para mostrar a descrição
+                            with st.expander(f"| **{row['assunto']}**"):
+                                st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
+                    
+                    with c_ed:
+                        if st.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
+                            st.session_state.editando_id = row['id']
+                            st.session_state.val_tipo = row['tipo']
+                            st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
+                            st.session_state.val_assunto = row['assunto']
+                            st.session_state.val_desc = row['descricao']
+                            st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
+                            st.rerun()
+                    
+                    with c_del:
+                        if st.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
+                            with engine.connect() as conn:
+                                conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
+                                conn.commit()
+                            st.rerun()
+                    
+                    st.markdown("---")
 
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
