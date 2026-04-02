@@ -22,12 +22,12 @@ def inicializar_db():
 
 inicializar_db()
 
-# --- FUNÇÃO PARA A CAIXA DE DESCRIÇÃO (MODAL) ---
-@st.dialog("Descrição do Item")
-def abrir_descricao(assunto, descricao):
+# --- CAIXA DE DIÁLOGO (MODAL) ---
+@st.dialog("Detalhes da Atividade")
+def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
-    st.write(descricao if descricao else "Sem descrição detalhada.")
-    if st.button("Fechar"):
+    st.write(descricao if descricao else "Sem descrição disponível.")
+    if st.button("Fechar", width="stretch"):
         st.rerun()
 
 # --- ESTADOS DO SISTEMA ---
@@ -56,9 +56,18 @@ st.markdown("""
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
     }
-    /* Diminuir espaço entre linhas da lista */
-    div[data-testid="column"] {
-        padding: 0px 5px !important;
+    [data-testid="column"] {
+        display: flex;
+        align-items: center;
+    }
+    hr {
+        margin-top: 5px !important;
+        margin-bottom: 5px !important;
+    }
+    /* Estilo para alinhar o texto dos botões à esquerda sem a barra */
+    .stButton button {
+        text-align: left !important;
+        padding-left: 0px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -74,7 +83,6 @@ if not st.session_state.logado:
             st.rerun()
         else: st.error("Dados incorretos.")
 else:
-    # --- BARRA LATERAL ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
@@ -87,7 +95,7 @@ else:
         desc = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
         
         c1, c2 = st.columns(2)
-        if c1.button("✅ Salvar", use_container_width=True):
+        if c1.button("✅ Salvar", width="stretch"):
             if not tipo or not assunto:
                 st.error("Preencha Tipo e Assunto!")
             else:
@@ -103,11 +111,10 @@ else:
                 limpar_tudo()
                 st.rerun()
         
-        if c2.button("🧹 Limpar", use_container_width=True):
+        if c2.button("🧹 Limpar", width="stretch"):
             limpar_tudo()
             st.rerun()
 
-    # --- ABAS ---
     t_dash, t_lem, t_com = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS"])
     
     try:
@@ -123,7 +130,6 @@ else:
         elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
         else: return "blue", "🔵 FUTURO"
 
-    # Aba Dashboard
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
@@ -143,30 +149,29 @@ else:
                 marker_color=["red", "gold", "blue"],
                 text=[cts["red"], cts["gold"], cts["blue"]], 
                 textposition='outside',
-                cliponaxis=False
+                cliponaxis=False 
             ))
             fig.update_layout(
                 title=f"{nome}S: {len(dff)}", 
                 height=250, 
                 margin=dict(l=10, r=50, t=40, b=10),
-                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias)
+                # OCULTAR EIXO X (Régua de números abaixo do gráfico)
+                xaxis=dict(visible=False),
+                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias, showgrid=False)
             )
-            if i == 0: col_l.plotly_chart(fig, use_container_width=True)
-            else: col_c.plotly_chart(fig, use_container_width=True)
+            if i == 0: col_l.plotly_chart(fig, width="stretch")
+            else: col_c.plotly_chart(fig, width="stretch")
 
-    # --- LISTA COM ALINHAMENTO EM COLUNAS E MODAL ---
     def listar(tipo_nome, tab):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
             if dff.empty: st.info(f"Nenhum {tipo_nome.lower()} encontrado.")
             else:
-                # Cabeçalho da "Tabela" para ficar tudo alinhado
-                h1, h2, h3, h4, h5, h6 = st.columns([0.15, 0.12, 0.12, 0.41, 0.1, 0.1])
+                h1, h2, h3, h4, h5, h6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                 h1.caption("STATUS")
                 h2.caption("DIA")
                 h3.caption("DATA")
-                h4.caption("ASSUNTO (Clique para ver detalhes)")
+                h4.caption("ASSUNTO")
                 st.markdown("---")
 
                 for _, row in dff.iterrows():
@@ -176,16 +181,15 @@ else:
                     dia_pt = dias[dt.strftime('%A')]
                     data_f = dt.strftime('%d/%m/%Y')
                     
-                    # Linha da Tabela
-                    c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.41, 0.05, 0.05])
+                    c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                     
                     c1.write(texto_status)
-                    c2.write(f"| {dia_pt}")
-                    c3.write(f"| {data_f}")
+                    c2.write(dia_pt) # Removida a barra |
+                    c3.write(data_f) # Removida a barra |
                     
-                    # O Assunto vira um botão que abre a caixa (modal)
-                    if c4.button(f"| {row['assunto']}", key=f"btn_{row['id']}", use_container_width=True):
-                        abrir_descricao(row['assunto'], row['descricao'])
+                    # Removida a barra | do botão de assunto
+                    if c4.button(f"**{row['assunto']}**", key=f"btn_{row['id']}", width="stretch"):
+                        exibir_detalhes(row['assunto'], row['descricao'])
                     
                     if c5.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
                         st.session_state.editando_id = row['id']
@@ -202,7 +206,7 @@ else:
                             conn.commit()
                         st.rerun()
                     
-                    st.markdown("<hr style='margin:2px 0px'>", unsafe_allow_html=True)
+                    st.markdown("---")
 
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
