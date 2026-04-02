@@ -48,6 +48,11 @@ st.markdown("""
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
     }
+    /* Ajuste para alinhar verticalmente os textos nas colunas */
+    div[data-testid="column"] {
+        display: flex;
+        align-items: center;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -115,10 +120,7 @@ else:
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
-        
-        # Ordem fixa para as cores: Vermelho no topo, Amarelo no meio, Azul embaixo
         ordem_categorias = ["3+ dias", "2 dias", "Vencido"]
-        cores_map = ["blue", "gold", "red"]
 
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
@@ -127,7 +129,6 @@ else:
                 cor, _ = obter_estilo(d)
                 cts[cor] += 1
             
-            # Gráfico ajustado
             fig = go.Figure(go.Bar(
                 x=[cts["red"], cts["gold"], cts["blue"]],
                 y=["Vencido", "2 dias", "3+ dias"],
@@ -135,21 +136,19 @@ else:
                 marker_color=["red", "gold", "blue"],
                 text=[cts["red"], cts["gold"], cts["blue"]], 
                 textposition='outside',
-                cliponaxis=False # Garante que o número não seja cortado
+                cliponaxis=False
             ))
-            
             fig.update_layout(
                 title=f"{nome}S: {len(dff)}", 
                 height=250, 
                 margin=dict(l=10, r=50, t=40, b=10),
-                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False), # Remove números e grades do fundo
-                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias) # Fixa a ordem das cores
+                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias)
             )
-            
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
-    # Listas
+    # --- LISTA COM SEPARADORES TIPO COLUNA ---
     def listar(tipo_nome, tab):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
@@ -159,14 +158,23 @@ else:
                     cor_hex, texto_status = obter_estilo(row['data'])
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
                     dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
+                    dia_pt = dias[dt.strftime('%A')]
+                    data_f = dt.strftime('%d/%m/%Y')
                     
-                    col_info, col_ed, col_del = st.columns([0.8, 0.1, 0.1])
-                    with col_info:
-                        label = f"{texto_status} | {dias[dt.strftime('%A')]} | {dt.strftime('%d/%m/%Y')} | **{row['assunto']}**"
-                        with st.expander(label):
+                    # Definindo as colunas: Status, Dia e Data fixos | Assunto Livre | Botões
+                    # Proporção: 15% status, 12% dia, 12% data, 46% assunto, 15% botões
+                    c_status, c_dia, c_data, c_assunto, c_ed, c_del = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
+                    
+                    with c_status: st.write(texto_status)
+                    with c_dia:    st.write(f"| {dia_pt}")
+                    with c_data:   st.write(f"| {data_f}")
+                    
+                    with c_assunto:
+                        # Aqui o assunto fica livre dentro de um expander
+                        with st.expander(f"| **{row['assunto']}**"):
                             st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
                     
-                    if col_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
+                    if c_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
                         st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
@@ -175,11 +183,13 @@ else:
                         st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
                         
-                    if col_del.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
+                    if c_del.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
                             conn.commit()
                         st.rerun()
+                    
+                    st.markdown("---") # Linha divisória para manter a organização
 
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
