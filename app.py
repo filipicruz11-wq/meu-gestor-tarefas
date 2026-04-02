@@ -31,9 +31,12 @@ inicializar_db()
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
     if descricao:
-        # Usamos markdown para permitir **negrito** e _italico_
-        # O replace garante que as quebras de linha enviadas pelo formulário sejam respeitadas
-        st.markdown(descricao.replace("\n", "  \n"))
+        # CORREÇÃO PARA O NEGRITO E QUEBRA DE LINHA
+        # O .replace garante que o Markdown entenda as quebras de linha e o negrito
+        texto_final = descricao.replace("\n", "  \n")
+        
+        # EXIBIÇÃO FINAL
+        st.markdown(texto_final)
     else:
         st.write("Sem descrição disponível.")
         
@@ -59,7 +62,7 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS (COM TRAVAS DE FORMATAÇÃO) ---
+# --- ESTILIZAÇÃO CSS ---
 st.markdown("""
     <style>
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
@@ -67,12 +70,12 @@ st.markdown("""
         border: 2px solid #ced4da !important;
     }
     
-    /* Desativa o corretor ortográfico do navegador para não trocar Data por Dados */
+    /* Impede o navegador de tentar corrigir o texto automaticamente */
     textarea { 
         spellcheck: false !important; 
     }
 
-    /* REMOVE O FUNDO VERDE/CINZA DE NÚMEROS E CÓDIGOS */
+    /* Limpa o fundo de números que o Streamlit às vezes destaca */
     code {
         background-color: transparent !important;
         color: inherit !important;
