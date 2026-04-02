@@ -25,12 +25,10 @@ inicializar_db()
 # --- ESTADOS DO SISTEMA ---
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
-
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_data' not in st.session_state: st.session_state.val_data = datetime.now().date()
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
-
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
 def limpar_tudo():
@@ -41,17 +39,20 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS ---
+# --- ESTILIZAÇÃO CSS PARA COMPACTAR LINHAS ---
 st.markdown("""
     <style>
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
     }
-    /* Ajuste para alinhar verticalmente os textos nas colunas */
-    div[data-testid="column"] {
-        display: flex;
-        align-items: center;
+    /* Diminuir o espaço entre as linhas da lista */
+    .stExpander {
+        margin-bottom: -15px !important;
+    }
+    hr {
+        margin-top: 5px !important;
+        margin-bottom: 5px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -70,7 +71,6 @@ else:
     # --- BARRA LATERAL ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
-        
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
@@ -95,7 +95,6 @@ else:
                 st.success("Salvo!")
                 limpar_tudo()
                 st.rerun()
-        
         if c2.button("🧹 Limpar", use_container_width=True):
             limpar_tudo()
             st.rerun()
@@ -116,19 +115,17 @@ else:
         elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
         else: return "blue", "🔵 FUTURO"
 
-    # Aba Dashboard
+    # Dash (Gráficos)
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
         ordem_categorias = ["3+ dias", "2 dias", "Vencido"]
-
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
             cts = {"red": 0, "gold": 0, "blue": 0}
             for d in dff['data']:
                 cor, _ = obter_estilo(d)
                 cts[cor] += 1
-            
             fig = go.Figure(go.Bar(
                 x=[cts["red"], cts["gold"], cts["blue"]],
                 y=["Vencido", "2 dias", "3+ dias"],
@@ -148,7 +145,7 @@ else:
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
-    # --- LISTA COM SEPARADORES TIPO COLUNA ---
+    # --- LISTA COMPACTA COM EXPANDER NO INÍCIO ---
     def listar(tipo_nome, tab):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
@@ -161,19 +158,17 @@ else:
                     dia_pt = dias[dt.strftime('%A')]
                     data_f = dt.strftime('%d/%m/%Y')
                     
-                    # Definindo as colunas: Status, Dia e Data fixos | Assunto Livre | Botões
-                    # Proporção: 15% status, 12% dia, 12% data, 46% assunto, 15% botões
-                    c_status, c_dia, c_data, c_assunto, c_ed, c_del = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
+                    # Coluna principal com o Expander e Colunas de Ação
+                    c_main, c_ed, c_del = st.columns([0.86, 0.07, 0.07])
                     
-                    with c_status: st.write(texto_status)
-                    with c_dia:    st.write(f"| {dia_pt}")
-                    with c_data:   st.write(f"| {data_f}")
-                    
-                    with c_assunto:
-                        # Aqui o assunto fica livre dentro de um expander
-                        with st.expander(f"| **{row['assunto']}**"):
+                    with c_main:
+                        # O expander agora engloba toda a informação da linha
+                        # Usei colunas dentro do label para aproximar os dados
+                        label_texto = f"{texto_status}  |  {dia_pt}  |  {data_f}  |  **{row['assunto']}**"
+                        with st.expander(label_texto):
                             st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
                     
+                    # Botões de Editar e Excluir
                     if c_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
@@ -182,14 +177,13 @@ else:
                         st.session_state.val_desc = row['descricao']
                         st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
-                        
                     if c_del.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
                             conn.commit()
                         st.rerun()
                     
-                    st.markdown("---") # Linha divisória para manter a organização
+                    st.markdown("---")
 
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
