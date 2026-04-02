@@ -26,7 +26,6 @@ inicializar_db()
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 
-# Variáveis que controlam os valores dos campos de input
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_data' not in st.session_state: st.session_state.val_data = datetime.now().date()
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
@@ -60,16 +59,13 @@ if not st.session_state.logado:
             st.rerun()
         else: st.error("Dados incorretos.")
 else:
-    # --- BARRA LATERAL (CADASTRO/EDIÇÃO) ---
+    # --- BARRA LATERAL ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO"]
-        
-        # Define qual índice o seletor deve mostrar (0 se vazio, 1 se LEMBRETE, 2 se COMPROMISSO)
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
-        # Widgets com valores amarrados ao session_state
         tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual)
         data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY")
         assunto = st.text_input("Assunto", value=st.session_state.val_assunto)
@@ -112,20 +108,33 @@ else:
         elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
         else: return "blue", "🔵 FUTURO"
 
-    # Dashboard
+    # Aba Dashboard
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
+            total = len(dff)
             cts = {"red": 0, "gold": 0, "blue": 0}
             for d in dff['data']:
                 cor, _ = obter_estilo(d)
                 cts[cor] += 1
-            fig = go.Figure(go.Bar(x=[cts["red"], cts["gold"], cts["blue"]],
-                                   y=["Vencido", "2 dias", "3+ dias"],
-                                   orientation='h', marker_color=["red", "gold", "blue"]))
-            fig.update_layout(title=f"{nome}S", height=250, margin=dict(l=10, r=10, t=40, b=10))
+            
+            # Gráfico com números na frente das barras
+            fig = go.Figure(go.Bar(
+                x=[cts["red"], cts["gold"], cts["blue"]],
+                y=["Vencido", "2 dias", "3+ dias"],
+                orientation='h',
+                marker_color=["red", "gold", "blue"],
+                text=[cts["red"], cts["gold"], cts["blue"]], # Adiciona os números
+                textposition='outside' # Coloca fora da barra
+            ))
+            fig.update_layout(
+                title=f"{nome}S: {total}", 
+                height=250, 
+                margin=dict(l=10, r=40, t=40, b=10),
+                xaxis=dict(showticklabels=True)
+            )
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
@@ -139,15 +148,17 @@ else:
                     cor_hex, texto_status = obter_estilo(row['data'])
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
                     dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
+                    dia_pt = dias[dt.strftime('%A')]
+                    data_f = dt.strftime('%d/%m/%Y')
                     
                     col_info, col_ed, col_del = st.columns([0.8, 0.1, 0.1])
                     with col_info:
-                        label = f"{texto_status} | **{dias[dt.strftime('%A')]}** | {dt.strftime('%d/%m/%Y')} | {row['assunto']}"
+                        # Alteração: Apenas o assunto em negrito
+                        label = f"{texto_status} | {dia_pt} | {data_f} | **{row['assunto']}**"
                         with st.expander(label):
                             st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
                     
                     if col_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
-                        # Carrega os dados EXATAMENTE ANTES do rerun
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
                         st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
