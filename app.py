@@ -13,17 +13,15 @@ engine = create_engine(DB_URL)
 
 def inicializar_db():
     with engine.connect() as conn:
-        # 1. Cria a tabela se não existir
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS tarefas (
                 id SERIAL PRIMARY KEY, tipo TEXT, prazo TEXT, assunto TEXT, descricao TEXT
             )
         """))
-        # 2. CORREÇÃO DE ERRO: Renomeia 'data' para 'prazo' se o banco for antigo
         try:
             conn.execute(text("ALTER TABLE tarefas RENAME COLUMN data TO prazo;"))
         except:
-            pass # Se já foi renomeado ou não existe 'data', ele ignora o erro
+            pass
         conn.commit()
 
 inicializar_db()
@@ -32,8 +30,12 @@ inicializar_db()
 @st.dialog("Detalhes da Atividade")
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
-    # Garantimos que o texto saia puro do banco
-    st.write(str(descricao) if descricao else "Sem descrição disponível.")
+    # Usamos st.text para evitar que o sistema destaque valores em dinheiro com fundo verde
+    if descricao:
+        st.text(descricao)
+    else:
+        st.write("Sem descrição disponível.")
+        
     if st.button("Fechar", width="stretch"):
         st.rerun()
 
@@ -67,6 +69,14 @@ st.markdown("""
     [data-testid="column"] { display: flex; align-items: center; }
     hr { margin-top: 5px !important; margin-bottom: 5px !important; }
     .stButton button { text-align: left !important; padding-left: 0px !important; }
+    /* Estilo para o st.text ficar com fonte padrão e sem fundo cinza */
+    .stText pre {
+        font-family: inherit !important;
+        background-color: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+        white-space: pre-wrap !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -104,7 +114,6 @@ else:
                 st.error("Preencha Tipo e Assunto!")
             else:
                 with engine.connect() as conn:
-                    # Garantia de texto puro com str()
                     params = {"t": tipo_selecionado, "p": str(data_venc), "a": str(assunto_input), "de": str(desc_input)}
                     if st.session_state.editando_id:
                         params["i"] = st.session_state.editando_id
@@ -179,8 +188,9 @@ else:
                         
                         c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                         c1.write(texto_status)
-                        c2.write(dias[dt.strftime('%A')])
-                        c3.write(dt.strftime('%d/%m/%Y'))
+                        c2.write(dias[dt.strftime('%A')]) # Barra removida
+                        c3.write(dt.strftime('%d/%m/%Y')) # Barra removida
+                        
                         if c4.button(f"**{row['assunto']}**", key=f"b_{row['id']}", width="stretch"):
                             exibir_detalhes(row['assunto'], row['descricao'])
                         
