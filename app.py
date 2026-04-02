@@ -2,158 +2,175 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import plotly.graph_objects as go
-import sqlite3
+from sqlalchemy import create_engine, text
 
 # Configuração da página
-st.set_page_config(page_title="Gestor de Tarefas", layout="wide")
+st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide")
 
-# --- ESTILIZAÇÃO (CSS) ---
+# --- CONEXÃO COM BANCO DE DADOS POSTGRES ---
+DB_URL = "postgresql://admin:m9QWSOMx5wPsxYHfP7rFMemMwfB64cOY@dpg-d776jalm5p6s739g3h3g-a/agenda_x7my"
+
+engine = create_engine(DB_URL)
+
+# Criar a tabela se ela não existir
+def inicializar_db():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS tarefas (
+                    id SERIAL PRIMARY KEY,
+                    tipo TEXT,
+                    data TEXT,
+                    assunto TEXT,
+                    descricao TEXT
+                )
+            """))
+            conn.commit()
+    except Exception as e:
+        st.error(f"Erro ao conectar ao banco: {e}")
+
+inicializar_db()
+
+# --- ESTILIZAÇÃO (CSS) para diferenciar campos brancos ---
 st.markdown("""
     <style>
-    .stTextInput insert, .stTextArea textarea, .stDateInput input {
-        background-color: #f0f2f6 !important;
-        border: 1px solid #d1d5db !important;
-        color: #31333f !important;
+    .stTextInput input, .stTextArea textarea, .stDateInput input {
+        background-color: #f1f3f5 !important;
+        border: 2px solid #ced4da !important;
+        color: #212529 !important;
+        border-radius: 5px !important;
     }
     .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
+        gap: 10px;
     }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
+        background-color: #f8f9fa;
+        border-radius: 5px 5px 0 0;
+        padding: 10px 20px;
         font-weight: bold;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- BANCO DE DADOS (SQLITE) ---
-def conectar_db():
-    conn = sqlite3.connect('agenda.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tarefas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tipo TEXT,
-            data TEXT,
-            assunto TEXT,
-            descricao TEXT
-        )
-    ''')
-    conn.commit()
-    return conn
+# --- ESTADOS DO SISTEMA ---
+if 'logado' not in st.session_state: st.session_state.logado = False
+if 'editando_id' not in st.session_state: st.session_state.editando_id = None
+if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
+if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
 
-db = conectar_db()
-
-# --- INICIALIZAÇÃO DO ESTADO ---
-if 'logado' not in st.session_state:
-    st.session_state.logado = False
-if 'editando_id' not in st.session_state:
-    st.session_state.editando_id = None
-if 'temp_assunto' not in st.session_state:
-    st.session_state.temp_assunto = ""
-if 'temp_desc' not in st.session_state:
-    st.session_state.temp_desc = ""
-
-# --- FUNÇÕES DE APOIO ---
+# --- LÓGICA DE STATUS ---
 def calcular_status(data_str):
     data_venc = datetime.strptime(data_str, '%Y-%m-%d').date()
     hoje = datetime.now().date()
-    diferenca = (data_venc - hoje).days
-    if diferenca <= 0: return "Vencido", "red"
-    elif 1 <= diferenca <= 2: return "Próximos 2 dias", "gold"
+    dif = (data_venc - hoje).days
+    if dif <= 0: return "Vencido", "red"
+    elif 1 <= dif <= 2: return "Próximos 2 dias", "gold"
     else: return "3 dias ou mais", "blue"
 
-def salvar_tarefa(tipo, data, assunto, descricao):
-    cursor = db.cursor()
-    if st.session_state.editando_id:
-        cursor.execute('UPDATE tarefas SET tipo=?, data=?, assunto=?, descricao=? WHERE id=?',
-                       (tipo, data, assunto, descricao, st.session_state.editando_id))
-        st.session_state.editando_id = None
-    else:
-        cursor.execute('INSERT INTO tarefas (tipo, data, assunto, descricao) VALUES (?, ?, ?, ?)',
-                       (tipo, data, assunto, descricao))
-    db.commit()
-    st.session_state.temp_assunto = ""
-    st.session_state.temp_desc = ""
-
-# --- LOGIN ---
+# --- TELA DE LOGIN ---
 if not st.session_state.logado:
-    st.title("🔐 Acesso ao Sistema")
+    st.title("🔐 Acesso Restrito")
     u = st.text_input("Usuário")
     s = st.text_input("Senha", type="password")
     if st.button("Entrar"):
         if u == "admin" and s == "123456":
             st.session_state.logado = True
             st.rerun()
-        else: st.error("Incorreto")
+        else: st.error("Dados incorretos.")
 else:
-    # --- SIDEBAR ---
+    # --- BARRA LATERAL (CADASTRO/EDIÇÃO) ---
     with st.sidebar:
-        st.header("📝 " + ("Editando" if st.session_state.editando_id else "Cadastro"))
+        st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         tipo = st.selectbox("Tipo", ["LEMBRETE", "COMPROMISSO"])
-        data_venc = st.date_input("Data de Vencimento", format="DD/MM/YYYY")
-        assunto = st.text_input("Assunto", value=st.session_state.temp_assunto)
-        desc = st.text_area("Descrição", value=st.session_state.temp_desc)
+        data_venc = st.date_input("Vencimento", format="DD/MM/YYYY")
+        assunto = st.text_input("Assunto", value=st.session_state.val_assunto)
+        desc = st.text_area("Descrição (clique para expandir na lista)", value=st.session_state.val_desc)
         
         c1, c2 = st.columns(2)
-        if c1.button("Salvar"):
+        if c1.button("✅ Salvar"):
             if assunto:
-                salvar_tarefa(tipo, str(data_venc), assunto, desc)
-                st.success("Sucesso!")
+                with engine.connect() as conn:
+                    if st.session_state.editando_id:
+                        conn.execute(text("UPDATE tarefas SET tipo=:t, data=:d, assunto=:a, descricao=:de WHERE id=:i"),
+                                   {"t": tipo, "d": str(data_venc), "a": assunto, "de": desc, "i": st.session_state.editando_id})
+                    else:
+                        conn.execute(text("INSERT INTO tarefas (tipo, data, assunto, descricao) VALUES (:t, :d, :a, :de)"),
+                                   {"t": tipo, "d": str(data_venc), "a": assunto, "de": desc})
+                    conn.commit()
+                # Limpa tudo após salvar
+                st.session_state.editando_id = None
+                st.session_state.val_assunto = ""
+                st.session_state.val_desc = ""
+                st.success("Salvo com sucesso!")
                 st.rerun()
-            else: st.warning("Falta assunto")
+            else: st.warning("O campo Assunto é obrigatório.")
         
-        if c2.button("Limpar"):
+        if c2.button("🧹 Limpar"):
             st.session_state.editando_id = None
-            st.session_state.temp_assunto = ""
-            st.session_state.temp_desc = ""
+            st.session_state.val_assunto = ""
+            st.session_state.val_desc = ""
             st.rerun()
 
-    # --- CORPO PRINCIPAL ---
-    tab_ini, tab_lem, tab_com = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS"])
+    # --- CORPO DO SITE ---
+    tab_dashboard, tab_lem, tab_com = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS"])
+    
+    # Carregar dados do Banco
+    try:
+        df = pd.read_sql("SELECT * FROM tarefas", engine)
+    except:
+        df = pd.DataFrame(columns=['id', 'tipo', 'data', 'assunto', 'descricao'])
 
-    df = pd.read_sql_query("SELECT * FROM tarefas", db)
-
-    with tab_ini:
-        st.header("Gráficos de Status")
-        col1, col2 = st.columns(2)
-        for i, t_nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
-            dff = df[df['tipo'] == t_nome]
-            counts = {"red": 0, "gold": 0, "blue": 0}
+    # ABA INÍCIO (GRÁFICOS)
+    with tab_dashboard:
+        st.subheader("Visão Geral")
+        col_l, col_c = st.columns(2)
+        for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
+            dff = df[df['tipo'] == nome]
+            cts = {"red": 0, "gold": 0, "blue": 0}
             for d in dff['data']:
                 _, cor = calcular_status(d)
-                counts[cor] += 1
+                cts[cor] += 1
             
-            fig = go.Figure(go.Bar(x=[counts["red"], counts["gold"], counts["blue"]],
-                                   y=["Vencido", "2 dias", "3+ dias"],
+            fig = go.Figure(go.Bar(x=[cts["red"], cts["gold"], cts["blue"]],
+                                   y=["Vencido", "Até 2 dias", "3+ dias"],
                                    orientation='h', marker_color=["red", "gold", "blue"]))
-            fig.update_layout(title=f"Total de {t_nome}s", height=300)
-            if i == 0: col1.plotly_chart(fig, use_container_width=True)
-            else: col2.plotly_chart(fig, use_container_width=True)
+            fig.update_layout(title=f"{nome}S ({len(dff)})", height=300, margin=dict(l=20, r=20, t=50, b=20))
+            if i == 0: col_l.plotly_chart(fig, use_container_width=True)
+            else: col_c.plotly_chart(fig, use_container_width=True)
 
-    def mostrar_lista(t_nome, tab_alvo):
-        with tab_alvo:
-            dff = df[df['tipo'] == t_nome].copy()
-            if not dff.empty:
+    # FUNÇÃO PARA LISTAR ITENS
+    def listar_itens(tipo_nome, tab_obj):
+        with tab_obj:
+            dff = df[df['tipo'] == tipo_nome].copy()
+            if dff.empty:
+                st.info(f"Não há {tipo_nome.lower()}s cadastrados.")
+            else:
                 dff = dff.sort_values(by='data')
                 for _, row in dff.iterrows():
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
-                    dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
-                    header = f"**{dias[dt.strftime('%A')]}** | {dt.strftime('%d/%m/%Y')} | {row['assunto']}"
+                    traducao_dias = {"Monday":"SEGUNDA-FEIRA", "Tuesday":"TERÇA-FEIRA", "Wednesday":"QUARTA-FEIRA", 
+                                    "Thursday":"QUINTA-FEIRA", "Friday":"SEXTA-FEIRA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
+                    dia_semana = traducao_dias[dt.strftime('%A')]
                     
-                    c_txt, c_ed, c_del = st.columns([0.7, 0.1, 0.1])
-                    with c_txt:
-                        with st.expander(header): st.write(row['descricao'])
-                    if c_ed.button("📝", key=f"e{row['id']}"):
+                    # Layout da linha
+                    col_info, col_btn_ed, col_btn_del = st.columns([0.7, 0.1, 0.1])
+                    
+                    with col_info:
+                        label = f"**{dia_semana}** | {dt.strftime('%d/%m/%Y')} | **{row['assunto']}**"
+                        with st.expander(label):
+                            st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
+                    
+                    if col_btn_ed.button("📝", key=f"edit_{row['id']}"):
                         st.session_state.editando_id = row['id']
-                        st.session_state.temp_assunto = row['assunto']
-                        st.session_state.temp_desc = row['descricao']
+                        st.session_state.val_assunto = row['assunto']
+                        st.session_state.val_desc = row['descricao']
                         st.rerun()
-                    if c_del.button("🗑️", key=f"d{row['id']}"):
-                        db.cursor().execute('DELETE FROM tarefas WHERE id=?', (row['id'],))
-                        db.commit()
+                        
+                    if col_btn_del.button("🗑️", key=f"del_{row['id']}"):
+                        with engine.connect() as conn:
+                            conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
+                            conn.commit()
                         st.rerun()
-            else: st.info("Vazio")
 
-    mostrar_lista("LEMBRETE", tab_lem)
-    mostrar_lista("COMPROMISSO", tab_com)
+    listar_itens("LEMBRETE", tab_lem)
+    listar_itens("COMPROMISSO", tab_com)
