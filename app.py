@@ -4,18 +4,23 @@ from datetime import datetime
 import plotly.graph_objects as go
 from sqlalchemy import create_engine, text
 
-# Configuração da página
-st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide")
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide", page_icon="📅")
 
-# --- CONEXÃO COM BANCO ---
+# --- CONEXÃO COM BANCO (Otimizada com Cache) ---
 DB_URL = "postgresql://admin:m9QWSOMx5wPsxYHfP7rFMemMwfB64cOY@dpg-d776jalm5p6s739g3h3g-a/agenda_x7my"
 engine = create_engine(DB_URL)
 
+@st.cache_resource
 def inicializar_db():
     with engine.connect() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS tarefas (
-                id SERIAL PRIMARY KEY, tipo TEXT, data TEXT, assunto TEXT, descricao TEXT
+                id SERIAL PRIMARY KEY, 
+                tipo TEXT, 
+                data TEXT, 
+                assunto TEXT, 
+                descricao TEXT
             )
         """))
         conn.commit()
@@ -25,12 +30,10 @@ inicializar_db()
 # --- ESTADOS DO SISTEMA ---
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
-
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_data' not in st.session_state: st.session_state.val_data = datetime.now().date()
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
-
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
 def limpar_tudo():
@@ -41,27 +44,74 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS ---
+# --- ESTILIZAÇÃO CSS (FOCO EM COMPACTAÇÃO) ---
 st.markdown("""
     <style>
-    .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
-        background-color: #f1f3f5 !important;
-        border: 2px solid #ced4da !important;
+    /* Remove espaços em branco no topo */
+    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+    
+    /* Compacta o espaço entre QUALQUER elemento do Streamlit */
+    [data-testid="stVerticalBlock"] > div {
+        margin-bottom: -0.9rem !important;
+        padding-bottom: 0px !important;
     }
-    /* Ajuste para alinhar verticalmente os textos nas colunas */
+
+    /* Estiliza o Expander para ser uma linha fina */
+    .streamlit-expanderHeader {
+        padding: 0.1rem 0.5rem !important;
+        border: none !important;
+        background-color: transparent !important;
+        font-size: 14px !important;
+    }
+    .streamlit-expanderContent {
+        border: none !important;
+        background-color: #fcfcfc !important;
+    }
+
+    /* Alinhamento vertical perfeito das colunas */
     div[data-testid="column"] {
         display: flex;
         align-items: center;
+        justify-content: flex-start;
+        height: 35px !important; /* Força altura fixa para as linhas */
+    }
+
+    /* Linha divisória ultra fina */
+    hr {
+        margin: 0.1rem 0px !important;
+        padding: 0px !important;
+        border: 0;
+        border-top: 1px solid #eee;
+    }
+
+    /* Estilo dos inputs na sidebar */
+    .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
+        background-color: #f8f9fa !important;
+    }
+
+    /* Esconder o botão de fechar expander que às vezes sobra */
+    .streamlit-expanderHeader svg {
+        width: 16px !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
+# --- FUNÇÕES DE APOIO ---
+def obter_estilo(data_str):
+    dv = datetime.strptime(data_str, '%Y-%m-%d').date()
+    hoje = datetime.now().date()
+    dif = (dv - hoje).days
+    if dif < 0: return "#E74C3C", "🔴 VENCIDO"
+    elif 0 <= dif <= 2: return "#F1C40F", "🟡 URGENTE"
+    else: return "#3498DB", "🔵 NO PRAZO"
+
 # --- LOGIN ---
 if not st.session_state.logado:
-    st.title("🔐 Acesso Restrito")
-    u = st.text_input("Usuário")
-    s = st.text_input("Senha", type="password")
-    if st.button("Entrar"):
+    st.title("🔐 Agenda CEJUSC")
+    col_u, col_s = st.columns(2)
+    with col_u: u = st.text_input("Usuário")
+    with col_s: s = st.text_input("Senha", type="password")
+    if st.button("Entrar", use_container_width=True):
         if u == "admin" and s == "123456":
             st.session_state.logado = True
             st.rerun()
@@ -69,15 +119,15 @@ if not st.session_state.logado:
 else:
     # --- BARRA LATERAL ---
     with st.sidebar:
-        st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
+        st.subheader("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
-        tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
+        tipo = st.selectbox("Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
         data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
         assunto = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
-        desc = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
+        desc = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}", height=100)
         
         c1, c2 = st.columns(2)
         if c1.button("✅ Salvar", use_container_width=True):
@@ -92,104 +142,99 @@ else:
                         conn.execute(text("INSERT INTO tarefas (tipo, data, assunto, descricao) VALUES (:t, :d, :a, :de)"),
                                    {"t": tipo, "d": str(data_venc), "a": assunto, "de": desc})
                     conn.commit()
-                st.success("Salvo!")
+                st.success("Sucesso!")
                 limpar_tudo()
                 st.rerun()
         
         if c2.button("🧹 Limpar", use_container_width=True):
             limpar_tudo()
             st.rerun()
+        
+        st.divider()
+        if st.button("🚪 Sair"):
+            st.session_state.logado = False
+            st.rerun()
 
-    # --- ABAS ---
-    t_dash, t_lem, t_com = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS"])
-    
+    # --- CARREGAMENTO DE DADOS ---
     try:
         df = pd.read_sql("SELECT * FROM tarefas", engine)
     except:
         df = pd.DataFrame(columns=['id', 'tipo', 'data', 'assunto', 'descricao'])
 
-    def obter_estilo(data_str):
-        dv = datetime.strptime(data_str, '%Y-%m-%d').date()
-        hoje = datetime.now().date()
-        dif = (dv - hoje).days
-        if dif <= 0: return "red", "🔴 VENCIDO"
-        elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
-        else: return "blue", "🔵 FUTURO"
+    # --- CONTEÚDO PRINCIPAL (ABAS) ---
+    t_dash, t_lem, t_com = st.tabs(["🏠 DASHBOARD", "📝 LEMBRETES", "📅 COMPROMISSOS"])
 
     # Aba Dashboard
     with t_dash:
-        st.subheader("Visão Geral")
+        st.subheader("Resumo de Atividades")
         col_l, col_c = st.columns(2)
-        ordem_categorias = ["3+ dias", "2 dias", "Vencido"]
-
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
-            cts = {"red": 0, "gold": 0, "blue": 0}
+            cts = {"#E74C3C": 0, "#F1C40F": 0, "#3498DB": 0}
             for d in dff['data']:
                 cor, _ = obter_estilo(d)
                 cts[cor] += 1
             
             fig = go.Figure(go.Bar(
-                x=[cts["red"], cts["gold"], cts["blue"]],
-                y=["Vencido", "2 dias", "3+ dias"],
+                x=[cts["#E74C3C"], cts["#F1C40F"], cts["#3498DB"]],
+                y=["Vencido", "Urgente", "No Prazo"],
                 orientation='h',
-                marker_color=["red", "gold", "blue"],
-                text=[cts["red"], cts["gold"], cts["blue"]], 
-                textposition='outside',
-                cliponaxis=False
+                marker_color=["#E74C3C", "#F1C40F", "#3498DB"],
+                text=[cts["#E74C3C"], cts["#F1C40F"], cts["#3498DB"]],
+                textposition='outside'
             ))
-            fig.update_layout(
-                title=f"{nome}S: {len(dff)}", 
-                height=250, 
-                margin=dict(l=10, r=50, t=40, b=10),
-                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias)
-            )
+            fig.update_layout(title=f"{nome}S ({len(dff)})", height=200, margin=dict(l=0, r=0, t=30, b=0),
+                              xaxis=dict(visible=False), yaxis=dict(autorange="reversed"))
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
-    # --- LISTA COM SEPARADORES TIPO COLUNA ---
+    # Função de Listagem Compacta
     def listar(tipo_nome, tab):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
-            if dff.empty: st.info(f"Nenhum {tipo_nome.lower()} encontrado.")
+            if dff.empty:
+                st.info(f"Nenhum {tipo_nome.lower()} registrado.")
             else:
+                # Cabeçalho da Lista
+                st.markdown("<div style='font-weight:bold; color:#555; padding-bottom:5px;'>Status | Dia | Data | Assunto</div>", unsafe_allow_html=True)
+                
                 for _, row in dff.iterrows():
                     cor_hex, texto_status = obter_estilo(row['data'])
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
-                    dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
-                    dia_pt = dias[dt.strftime('%A')]
+                    dias_semana = {"Monday":"SEG", "Tuesday":"TER", "Wednesday":"QUA", "Thursday":"QUI", "Friday":"SEX", "Saturday":"SÁB", "Sunday":"DOM"}
+                    dia_pt = dias_semana[dt.strftime('%A')]
                     data_f = dt.strftime('%d/%m/%Y')
                     
-                    # Definindo as colunas: Status, Dia e Data fixos | Assunto Livre | Botões
-                    # Proporção: 15% status, 12% dia, 12% data, 46% assunto, 15% botões
-                    c_status, c_dia, c_data, c_assunto, c_ed, c_del = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
+                    # Colunas com larguras otimizadas para compactação
+                    c_status, c_dia, c_data, c_assunto, c_ed, c_del = st.columns([0.13, 0.07, 0.10, 0.56, 0.07, 0.07])
                     
-                    with c_status: st.write(texto_status)
-                    with c_dia:    st.write(f"| {dia_pt}")
-                    with c_data:   st.write(f"| {data_f}")
-                    
+                    with c_status:
+                        st.markdown(f"<span style='color:{cor_hex}; font-weight:bold; font-size:12px;'>{texto_status}</span>", unsafe_allow_html=True)
+                    with c_dia:
+                        st.markdown(f"<span style='color:#777;'>{dia_pt}</span>", unsafe_allow_html=True)
+                    with c_data:
+                        st.markdown(f"**{data_f}**")
                     with c_assunto:
-                        # Aqui o assunto fica livre dentro de um expander
-                        with st.expander(f"| **{row['assunto']}**"):
-                            st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
+                        with st.expander(f"**{row['assunto']}**"):
+                            st.write(row['descricao'] if row['descricao'] else "_Sem descrição detalhada._")
                     
-                    if c_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
-                        st.session_state.editando_id = row['id']
-                        st.session_state.val_tipo = row['tipo']
-                        st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
-                        st.session_state.val_assunto = row['assunto']
-                        st.session_state.val_desc = row['descricao']
-                        st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
-                        st.rerun()
-                        
-                    if c_del.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
-                        with engine.connect() as conn:
-                            conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
-                            conn.commit()
-                        st.rerun()
+                    with c_ed:
+                        if st.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
+                            st.session_state.editando_id = row['id']
+                            st.session_state.val_tipo = row['tipo']
+                            st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
+                            st.session_state.val_assunto = row['assunto']
+                            st.session_state.val_desc = row['descricao']
+                            st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
+                            st.rerun()
+                    with c_del:
+                        if st.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
+                            with engine.connect() as conn:
+                                conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
+                                conn.commit()
+                            st.rerun()
                     
-                    st.markdown("---") # Linha divisória para manter a organização
+                    st.markdown("<hr>", unsafe_allow_html=True)
 
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
