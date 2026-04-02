@@ -85,14 +85,15 @@ else:
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
-        # 1. Adicionado CONTATO à lista de tipos
-        lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO"]
+        # 1. Adicionado AUDIÊNCIA à lista de tipos
+        lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
         tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
         
-        # 2. Esconde data para INFORMAÇÃO e CONTATO
-        if tipo not in ["INFORMAÇÃO", "CONTATO"]:
+        # 2. Oculta data para tipos simplificados
+        tipos_sem_data = ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
+        if tipo not in tipos_sem_data:
             data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
         else:
             data_venc = datetime.now().date()
@@ -121,8 +122,10 @@ else:
             limpar_tudo()
             st.rerun()
 
-    # 3. Adicionada a aba CONTATOS no menu superior
-    t_dash, t_lem, t_com, t_info, t_cont = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS"])
+    # 3. Adicionada a aba AUDIÊNCIAS no menu superior
+    t_dash, t_lem, t_com, t_info, t_cont, t_aud = st.tabs([
+        "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS"
+    ])
     
     try:
         df = pd.read_sql("SELECT * FROM tarefas", engine)
@@ -211,7 +214,6 @@ else:
                         st.rerun()
                     st.markdown("---")
 
-    # FUNÇÃO PARA ABAS SIMPLIFICADAS (INFORMAÇÕES E CONTATOS)
     def listar_simplificado(tipo_nome, tab, icone="📌"):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='assunto')
@@ -242,8 +244,9 @@ else:
                         st.rerun()
                     st.markdown("---")
 
-    # Chamada das listas
+    # Chamada das 5 listas
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
     listar_simplificado("INFORMAÇÃO", t_info, icone="📌")
     listar_simplificado("CONTATO", t_cont, icone="👤")
+    listar_simplificado("AUDIÊNCIA", t_aud, icone="⚖️")
