@@ -31,11 +31,10 @@ inicializar_db()
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
     if descricao:
-        # SOLUÇÃO DEFINITIVA PARA O CIFRÃO ($):
-        # 1. Substituímos o $ por um código que o Streamlit não interpreta como matemática
-        # 2. Desativamos o processamento de LaTeX com um parâmetro de segurança
-        texto_exibicao = descricao.replace("$", "<span>$</span>").replace("\n", "  \n")
-        st.markdown(texto_exibicao, unsafe_allow_html=True)
+        # SOLUÇÃO PARA O CIFRÃO E PARA O ERRO "DATA/DADOS":
+        # Usamos o bloco de código (```) para que o Streamlit exiba o texto puro,
+        # sem tentar interpretar fórmulas ($) ou fazer correções automáticas.
+        st.markdown(f"```\n{descricao}\n```")
     else:
         st.write("Sem descrição disponível.")
         
@@ -70,12 +69,14 @@ st.markdown("""
     }
     textarea { spellcheck: false !important; }
     
-    /* Remove fundo verde de números */
+    /* Mantém o texto dentro do bloco de detalhes limpo e legível */
     code {
-        background-color: transparent !important;
-        color: inherit !important;
-        padding: 0 !important;
-        font-family: inherit !important;
+        background-color: #f8f9fa !important;
+        color: #212529 !important;
+        padding: 10px !important;
+        font-family: 'Courier New', Courier, monospace !important;
+        font-size: 14px !important;
+        line-height: 1.5 !important;
     }
 
     [data-testid="column"] { display: flex; align-items: center; }
