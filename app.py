@@ -30,11 +30,9 @@ inicializar_db()
 @st.dialog("Detalhes da Atividade")
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
+    # Usamos st.text para evitar que o sistema destaque valores em dinheiro com fundo verde
     if descricao:
-        # SOLUÇÃO PARA O CIFRÃO E PARA O ERRO "DATA/DADOS":
-        # Usamos o bloco de código (```) para que o Streamlit exiba o texto puro,
-        # sem tentar interpretar fórmulas ($) ou fazer correções automáticas.
-        st.markdown(f"```\n{descricao}\n```")
+        st.text(descricao)
     else:
         st.write("Sem descrição disponível.")
         
@@ -68,20 +66,17 @@ st.markdown("""
         border: 2px solid #ced4da !important;
     }
     textarea { spellcheck: false !important; }
-    
-    /* Mantém o texto dentro do bloco de detalhes limpo e legível */
-    code {
-        background-color: #f8f9fa !important;
-        color: #212529 !important;
-        padding: 10px !important;
-        font-family: 'Courier New', Courier, monospace !important;
-        font-size: 14px !important;
-        line-height: 1.5 !important;
-    }
-
     [data-testid="column"] { display: flex; align-items: center; }
     hr { margin-top: 5px !important; margin-bottom: 5px !important; }
     .stButton button { text-align: left !important; padding-left: 0px !important; }
+    /* Estilo para o st.text ficar com fonte padrão e sem fundo cinza */
+    .stText pre {
+        font-family: inherit !important;
+        background-color: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+        white-space: pre-wrap !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -102,29 +97,29 @@ else:
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
-        tipo_sel = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
+        tipo_selecionado = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
         
         tipos_sem_prazo = ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
-        if tipo_sel not in tipos_sem_prazo:
+        if tipo_selecionado not in tipos_sem_prazo:
             data_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
         else:
             data_venc = datetime.now().date()
             
-        assunto_in = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
-        desc_in = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
+        assunto_input = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
+        desc_input = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
         
         c1, c2 = st.columns(2)
         if c1.button("✅ Salvar", width="stretch"):
-            if not tipo_sel or not assunto_in:
+            if not tipo_selecionado or not assunto_input:
                 st.error("Preencha Tipo e Assunto!")
             else:
                 with engine.connect() as conn:
-                    p = {"t": tipo_sel, "p": str(data_venc), "a": str(assunto_in), "de": str(desc_in)}
+                    params = {"t": tipo_selecionado, "p": str(data_venc), "a": str(assunto_input), "de": str(desc_input)}
                     if st.session_state.editando_id:
-                        p["i"] = st.session_state.editando_id
-                        conn.execute(text("UPDATE tarefas SET tipo=:t, prazo=:p, assunto=:a, descricao=:de WHERE id=:i"), p)
+                        params["i"] = st.session_state.editando_id
+                        conn.execute(text("UPDATE tarefas SET tipo=:t, prazo=:p, assunto=:a, descricao=:de WHERE id=:i"), params)
                     else:
-                        conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), p)
+                        conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), params)
                     conn.commit()
                 st.success("Salvo!")
                 limpar_tudo()
@@ -165,6 +160,7 @@ else:
                 for p in dff['prazo']:
                     cor, _ = obter_estilo(p)
                     cts[cor] += 1
+            
             fig = go.Figure(go.Bar(
                 x=[cts["red"], cts["gold"], cts["blue"]],
                 y=["Vencido", "2 dias", "3+ dias"],
@@ -186,21 +182,27 @@ else:
                     st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                     st.markdown("---")
                     for _, row in dff.iterrows():
-                        _, txt_status = obter_estilo(row['prazo'])
+                        cor_hex, texto_status = obter_estilo(row['prazo'])
                         dt = datetime.strptime(row['prazo'], '%Y-%m-%d')
                         dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
+                        
                         c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
-                        c1.write(txt_status)
-                        c2.write(dias[dt.strftime('%A')])
-                        c3.write(dt.strftime('%d/%m/%Y'))
+                        c1.write(texto_status)
+                        c2.write(dias[dt.strftime('%A')]) # Barra removida
+                        c3.write(dt.strftime('%d/%m/%Y')) # Barra removida
+                        
                         if c4.button(f"**{row['assunto']}**", key=f"b_{row['id']}", width="stretch"):
                             exibir_detalhes(row['assunto'], row['descricao'])
+                        
                         if c5.button("📝", key=f"e_{row['id']}"):
-                            st.session_state.editando_id, st.session_state.val_tipo = row['id'], row['tipo']
+                            st.session_state.editando_id = row['id']
+                            st.session_state.val_tipo = row['tipo']
                             st.session_state.val_prazo = datetime.strptime(row['prazo'], '%Y-%m-%d').date()
-                            st.session_state.val_assunto, st.session_state.val_desc = row['assunto'], row['descricao']
+                            st.session_state.val_assunto = row['assunto']
+                            st.session_state.val_desc = row['descricao']
                             st.session_state.campo_key = f"ed_{row['id']}_{datetime.now().timestamp()}"
                             st.rerun()
+                            
                         if c6.button("🗑️", key=f"d_{row['id']}"):
                             with engine.connect() as conn:
                                 conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
@@ -218,8 +220,10 @@ else:
                     if c1.button(f"{icone} **{row['assunto']}**", key=f"bs_{row['id']}", width="stretch"):
                         exibir_detalhes(row['assunto'], row['descricao'])
                     if c2.button("📝", key=f"es_{row['id']}"):
-                        st.session_state.editando_id, st.session_state.val_tipo = row['id'], row['tipo']
-                        st.session_state.val_assunto, st.session_state.val_desc = row['assunto'], row['descricao']
+                        st.session_state.editando_id = row['id']
+                        st.session_state.val_tipo = row['tipo']
+                        st.session_state.val_assunto = row['assunto']
+                        st.session_state.val_desc = row['descricao']
                         st.session_state.campo_key = f"eds_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
                     if c3.button("🗑️", key=f"ds_{row['id']}"):
