@@ -13,12 +13,17 @@ engine = create_engine(DB_URL)
 
 def inicializar_db():
     with engine.connect() as conn:
-        # Mudamos o nome da coluna para 'prazo' para evitar conflito com a palavra reservada 'data'
+        # 1. Cria a tabela se não existir
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS tarefas (
                 id SERIAL PRIMARY KEY, tipo TEXT, prazo TEXT, assunto TEXT, descricao TEXT
             )
         """))
+        # 2. CORREÇÃO DE ERRO: Renomeia 'data' para 'prazo' se o banco for antigo
+        try:
+            conn.execute(text("ALTER TABLE tarefas RENAME COLUMN data TO prazo;"))
+        except:
+            pass # Se já foi renomeado ou não existe 'data', ele ignora o erro
         conn.commit()
 
 inicializar_db()
@@ -27,6 +32,7 @@ inicializar_db()
 @st.dialog("Detalhes da Atividade")
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
+    # Garantimos que o texto saia puro do banco
     st.write(str(descricao) if descricao else "Sem descrição disponível.")
     if st.button("Fechar", width="stretch"):
         st.rerun()
@@ -98,7 +104,7 @@ else:
                 st.error("Preencha Tipo e Assunto!")
             else:
                 with engine.connect() as conn:
-                    # Usamos explicitamente str() para garantir que o texto seja tratado como texto puro
+                    # Garantia de texto puro com str()
                     params = {"t": tipo_selecionado, "p": str(data_venc), "a": str(assunto_input), "de": str(desc_input)}
                     if st.session_state.editando_id:
                         params["i"] = st.session_state.editando_id
@@ -125,12 +131,15 @@ else:
         df = pd.DataFrame(columns=['id', 'tipo', 'prazo', 'assunto', 'descricao'])
 
     def obter_estilo(prazo_str):
-        dv = datetime.strptime(prazo_str, '%Y-%m-%d').date()
-        hoje = datetime.now().date()
-        dif = (dv - hoje).days
-        if dif <= 0: return "red", "🔴 VENCIDO"
-        elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
-        else: return "blue", "🔵 FUTURO"
+        try:
+            dv = datetime.strptime(str(prazo_str), '%Y-%m-%d').date()
+            hoje = datetime.now().date()
+            dif = (dv - hoje).days
+            if dif <= 0: return "red", "🔴 VENCIDO"
+            elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
+            else: return "blue", "🔵 FUTURO"
+        except:
+            return "blue", "🔵 SEM DATA"
 
     with t_dash:
         st.subheader("Visão Geral")
@@ -138,9 +147,10 @@ else:
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
             cts = {"red": 0, "gold": 0, "blue": 0}
-            for p in dff['prazo']:
-                cor, _ = obter_estilo(p)
-                cts[cor] += 1
+            if 'prazo' in dff.columns:
+                for p in dff['prazo']:
+                    cor, _ = obter_estilo(p)
+                    cts[cor] += 1
             
             fig = go.Figure(go.Bar(
                 x=[cts["red"], cts["gold"], cts["blue"]],
@@ -156,38 +166,39 @@ else:
 
     def listar(tipo_nome, tab):
         with tab:
-            dff = df[df['tipo'] == tipo_nome].sort_values(by='prazo')
-            if dff.empty: st.info(f"Nenhum item em {tipo_nome.lower()}.")
-            else:
-                st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
-                st.markdown("---")
-                for _, row in dff.iterrows():
-                    cor_hex, texto_status = obter_estilo(row['prazo'])
-                    dt = datetime.strptime(row['prazo'], '%Y-%m-%d')
-                    dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
-                    
-                    c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
-                    c1.write(texto_status)
-                    c2.write(dias[dt.strftime('%A')])
-                    c3.write(dt.strftime('%d/%m/%Y'))
-                    if c4.button(f"**{row['assunto']}**", key=f"b_{row['id']}", width="stretch"):
-                        exibir_detalhes(row['assunto'], row['descricao'])
-                    
-                    if c5.button("📝", key=f"e_{row['id']}"):
-                        st.session_state.editando_id = row['id']
-                        st.session_state.val_tipo = row['tipo']
-                        st.session_state.val_prazo = datetime.strptime(row['prazo'], '%Y-%m-%d').date()
-                        st.session_state.val_assunto = row['assunto']
-                        st.session_state.val_desc = row['descricao']
-                        st.session_state.campo_key = f"ed_{row['id']}_{datetime.now().timestamp()}"
-                        st.rerun()
-                        
-                    if c6.button("🗑️", key=f"d_{row['id']}"):
-                        with engine.connect() as conn:
-                            conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
-                            conn.commit()
-                        st.rerun()
+            if 'prazo' in df.columns:
+                dff = df[df['tipo'] == tipo_nome].sort_values(by='prazo')
+                if dff.empty: st.info(f"Nenhum item em {tipo_nome.lower()}.")
+                else:
+                    st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                     st.markdown("---")
+                    for _, row in dff.iterrows():
+                        cor_hex, texto_status = obter_estilo(row['prazo'])
+                        dt = datetime.strptime(row['prazo'], '%Y-%m-%d')
+                        dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
+                        
+                        c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
+                        c1.write(texto_status)
+                        c2.write(dias[dt.strftime('%A')])
+                        c3.write(dt.strftime('%d/%m/%Y'))
+                        if c4.button(f"**{row['assunto']}**", key=f"b_{row['id']}", width="stretch"):
+                            exibir_detalhes(row['assunto'], row['descricao'])
+                        
+                        if c5.button("📝", key=f"e_{row['id']}"):
+                            st.session_state.editando_id = row['id']
+                            st.session_state.val_tipo = row['tipo']
+                            st.session_state.val_prazo = datetime.strptime(row['prazo'], '%Y-%m-%d').date()
+                            st.session_state.val_assunto = row['assunto']
+                            st.session_state.val_desc = row['descricao']
+                            st.session_state.campo_key = f"ed_{row['id']}_{datetime.now().timestamp()}"
+                            st.rerun()
+                            
+                        if c6.button("🗑️", key=f"d_{row['id']}"):
+                            with engine.connect() as conn:
+                                conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
+                                conn.commit()
+                            st.rerun()
+                        st.markdown("---")
 
     def listar_simplificado(tipo_nome, tab, icone="📌"):
         with tab:
