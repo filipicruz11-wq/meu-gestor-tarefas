@@ -49,13 +49,19 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS ---
+# --- ESTILIZAÇÃO CSS (COM TRAVA PARA O CORRETOR DO NAVEGADOR) ---
 st.markdown("""
     <style>
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
     }
+    
+    /* Desativa visualmente sugestões de correção ortográfica do navegador */
+    textarea {
+        spellcheck: false !important;
+    }
+
     [data-testid="column"] {
         display: flex;
         align-items: center;
@@ -85,13 +91,11 @@ else:
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
-        # 1. Adicionado AUDIÊNCIA à lista de tipos
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
         tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
         
-        # 2. Oculta data para tipos simplificados
         tipos_sem_data = ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
         if tipo not in tipos_sem_data:
             data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
@@ -122,7 +126,7 @@ else:
             limpar_tudo()
             st.rerun()
 
-    # 3. Adicionada a aba AUDIÊNCIAS no menu superior
+    # ABAS DO SISTEMA
     t_dash, t_lem, t_com, t_info, t_cont, t_aud = st.tabs([
         "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS"
     ])
@@ -244,7 +248,7 @@ else:
                         st.rerun()
                     st.markdown("---")
 
-    # Chamada das 5 listas
+    # Chamada das listas nas respectivas abas
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
     listar_simplificado("INFORMAÇÃO", t_info, icone="📌")
