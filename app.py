@@ -22,29 +22,36 @@ def inicializar_db():
 
 inicializar_db()
 
-# --- ESTADOS E RESET ---
+# --- ESTADOS DO SISTEMA ---
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 if 'form_reset_key' not in st.session_state: st.session_state.form_reset_key = 0
 
-# Valores temporários para edição
-if 'edit_assunto' not in st.session_state: st.session_state.edit_assunto = ""
-if 'edit_desc' not in st.session_state: st.session_state.edit_desc = ""
+# Variáveis que guardam o texto dos campos
+if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
+if 'val_data' not in st.session_state: st.session_state.val_data = datetime.now().date()
+if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
+if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
 
-def resetar_formulario():
+def limpar_e_resetar():
     st.session_state.editando_id = None
-    st.session_state.edit_assunto = ""
-    st.session_state.edit_desc = ""
-    st.session_state.form_reset_key += 1 # Força o Streamlit a recriar os campos vazios
+    st.session_state.val_tipo = ""
+    st.session_state.val_data = datetime.now().date()
+    st.session_state.val_assunto = ""
+    st.session_state.val_desc = ""
+    st.session_state.form_reset_key += 1 # Muda a key para forçar o reset visual
 
-# --- ESTILIZAÇÃO ---
+# --- ESTILIZAÇÃO CSS ---
 st.markdown("""
     <style>
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
-        border-radius: 5px !important;
     }
+    /* Cores para os Expanders */
+    .vencido { border-left: 10px solid red !important; }
+    .proximo { border-left: 10px solid gold !important; }
+    .futuro { border-left: 10px solid blue !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -59,25 +66,23 @@ if not st.session_state.logado:
             st.rerun()
         else: st.error("Dados incorretos.")
 else:
-    # --- BARRA LATERAL ---
+    # --- BARRA LATERAL (CADASTRO) ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
-        # O segredo do reset está na key dinâmica (form_reset_key)
-        # Adicionamos o "" como primeira opção para forçar a escolha
-        tipo = st.selectbox("Selecione o Tipo", ["", "LEMBRETE", "COMPROMISSO"], key=f"tipo_{st.session_state.form_reset_key}")
-        data_venc = st.date_input("Vencimento", format="DD/MM/YYYY", key=f"data_{st.session_state.form_reset_key}")
+        # Opções de Tipo com a escolha atual (importante para o editar)
+        lista_tipos = ["", "LEMBRETE", "COMPROMISSO"]
+        idx_tipo = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
-        # Se estiver editando, usamos o valor salvo, se não, usamos o campo resetado
-        assunto = st.text_input("Assunto", value=st.session_state.edit_assunto, key=f"assunto_{st.session_state.form_reset_key}")
-        desc = st.text_area("Descrição", value=st.session_state.edit_desc, key=f"desc_{st.session_state.form_reset_key}")
+        tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_tipo, key=f"t_{st.session_state.form_reset_key}")
+        data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.form_reset_key}")
+        assunto = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.form_reset_key}")
+        desc = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.form_reset_key}")
         
         c1, c2 = st.columns(2)
         if c1.button("✅ Salvar", use_container_width=True):
-            if not tipo:
-                st.error("Escolha LEMBRETE ou COMPROMISSO!")
-            elif not assunto:
-                st.error("O Assunto é obrigatório!")
+            if not tipo or not assunto:
+                st.error("Preencha Tipo e Assunto!")
             else:
                 with engine.connect() as conn:
                     if st.session_state.editando_id:
@@ -88,36 +93,37 @@ else:
                                    {"t": tipo, "d": str(data_venc), "a": assunto, "de": desc})
                     conn.commit()
                 st.success("Salvo!")
-                resetar_formulario()
+                limpar_e_resetar()
                 st.rerun()
         
         if c2.button("🧹 Limpar", use_container_width=True):
-            resetar_formulario()
+            limpar_e_resetar()
             st.rerun()
 
-    # --- CORPO ---
-    tab_dash, tab_lem, tab_com = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS"])
+    # --- ABAS ---
+    t_dash, t_lem, t_com = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS"])
     
-    try:
-        df = pd.read_sql("SELECT * FROM tarefas", engine)
-    except:
-        df = pd.DataFrame(columns=['id', 'tipo', 'data', 'assunto', 'descricao'])
+    df = pd.read_sql("SELECT * FROM tarefas", engine)
 
-    # Dashboard
-    with tab_dash:
+    # Função para definir cor e classe CSS
+    def obter_estilo(data_str):
+        dv = datetime.strptime(data_str, '%Y-%m-%d').date()
+        hoje = datetime.now().date()
+        dif = (dv - hoje).days
+        if dif <= 0: return "red", "vencido"
+        elif 1 <= dif <= 2: return "gold", "proximo"
+        else: return "blue", "futuro"
+
+    # Aba Dashboard
+    with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
             cts = {"red": 0, "gold": 0, "blue": 0}
-            hoje = datetime.now().date()
             for d in dff['data']:
-                dv = datetime.strptime(d, '%Y-%m-%d').date()
-                dif = (dv - hoje).days
-                if dif <= 0: cts["red"] += 1
-                elif 1 <= dif <= 2: cts["gold"] += 1
-                else: cts["blue"] += 1
-            
+                cor, _ = obter_estilo(d)
+                cts[cor] += 1
             fig = go.Figure(go.Bar(x=[cts["red"], cts["gold"], cts["blue"]],
                                    y=["Vencido", "2 dias", "3+ dias"],
                                    orientation='h', marker_color=["red", "gold", "blue"]))
@@ -125,34 +131,42 @@ else:
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
-    # Listas
-    def listar(tipo_nome, tab_obj):
-        with tab_obj:
+    # Listas com Cores
+    def listar(tipo_nome, tab):
+        with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
-            if dff.empty: st.info(f"Sem {tipo_nome.lower()}s.")
+            if dff.empty: st.info(f"Nenhum {tipo_nome.lower()} encontrado.")
             else:
                 for _, row in dff.iterrows():
+                    cor_hex, classe_css = obter_estilo(row['data'])
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
                     dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
-                    dia_pt = dias[dt.strftime('%A')]
                     
-                    c_info, c_ed, c_del = st.columns([0.8, 0.1, 0.1])
-                    with c_info:
-                        with st.expander(f"**{dia_pt}** | {dt.strftime('%d/%m/%Y')} | {row['assunto']}"):
-                            st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
+                    # Criando a linha com cor
+                    col_info, col_ed, col_del = st.columns([0.8, 0.1, 0.1])
+                    with col_info:
+                        # O container ajuda a aplicar a borda colorida lateral
+                        with st.container():
+                            label = f"**{dias[dt.strftime('%A')]}** | {dt.strftime('%d/%m/%Y')} | {row['assunto']}"
+                            # Expander colorido via Markdown (truque visual)
+                            cor_emoji = "🔴" if cor_hex == "red" else "🟡" if cor_hex == "gold" else "🔵"
+                            with st.expander(f"{cor_emoji} {label}"):
+                                st.write(row['descricao'])
                     
-                    if c_ed.button("📝", key=f"ed_{row['id']}"):
+                    if col_ed.button("📝", key=f"e_{row['id']}"):
+                        # Carrega os dados para o estado
                         st.session_state.editando_id = row['id']
-                        st.session_state.edit_assunto = row['assunto']
-                        st.session_state.edit_desc = row['descricao']
-                        # Não chamamos resetar aqui para não apagar o que acabamos de carregar
+                        st.session_state.val_tipo = row['tipo']
+                        st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
+                        st.session_state.val_assunto = row['assunto']
+                        st.session_state.val_desc = row['descricao']
                         st.rerun()
                         
-                    if c_del.button("🗑️", key=f"del_{row['id']}"):
+                    if col_del.button("🗑️", key=f"d_{row['id']}"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
                             conn.commit()
                         st.rerun()
 
-    listar("LEMBRETE", tab_lem)
-    listar("COMPROMISSO", tab_com)
+    listar("LEMBRETE", t_lem)
+    listar("COMPROMISSO", t_com)
