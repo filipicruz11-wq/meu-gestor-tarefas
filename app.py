@@ -22,6 +22,14 @@ def inicializar_db():
 
 inicializar_db()
 
+# --- FUNÇÃO PARA A CAIXA DE DESCRIÇÃO (MODAL) ---
+@st.dialog("Descrição do Item")
+def abrir_descricao(assunto, descricao):
+    st.markdown(f"### {assunto}")
+    st.write(descricao if descricao else "Sem descrição detalhada.")
+    if st.button("Fechar"):
+        st.rerun()
+
 # --- ESTADOS DO SISTEMA ---
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
@@ -47,6 +55,10 @@ st.markdown("""
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
+    }
+    /* Diminuir espaço entre linhas da lista */
+    div[data-testid="column"] {
+        padding: 0px 5px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -115,10 +127,7 @@ else:
     with t_dash:
         st.subheader("Visão Geral")
         col_l, col_c = st.columns(2)
-        
-        # Ordem fixa para as cores: Vermelho no topo, Amarelo no meio, Azul embaixo
         ordem_categorias = ["3+ dias", "2 dias", "Vencido"]
-        cores_map = ["blue", "gold", "red"]
 
         for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
@@ -127,7 +136,6 @@ else:
                 cor, _ = obter_estilo(d)
                 cts[cor] += 1
             
-            # Gráfico ajustado
             fig = go.Figure(go.Bar(
                 x=[cts["red"], cts["gold"], cts["blue"]],
                 y=["Vencido", "2 dias", "3+ dias"],
@@ -135,38 +143,51 @@ else:
                 marker_color=["red", "gold", "blue"],
                 text=[cts["red"], cts["gold"], cts["blue"]], 
                 textposition='outside',
-                cliponaxis=False # Garante que o número não seja cortado
+                cliponaxis=False
             ))
-            
             fig.update_layout(
                 title=f"{nome}S: {len(dff)}", 
                 height=250, 
                 margin=dict(l=10, r=50, t=40, b=10),
-                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False), # Remove números e grades do fundo
-                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias) # Fixa a ordem das cores
+                xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+                yaxis=dict(categoryorder='array', categoryarray=ordem_categorias)
             )
-            
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
-    # Listas
+    # --- LISTA COM ALINHAMENTO EM COLUNAS E MODAL ---
     def listar(tipo_nome, tab):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
             if dff.empty: st.info(f"Nenhum {tipo_nome.lower()} encontrado.")
             else:
+                # Cabeçalho da "Tabela" para ficar tudo alinhado
+                h1, h2, h3, h4, h5, h6 = st.columns([0.15, 0.12, 0.12, 0.41, 0.1, 0.1])
+                h1.caption("STATUS")
+                h2.caption("DIA")
+                h3.caption("DATA")
+                h4.caption("ASSUNTO (Clique para ver detalhes)")
+                st.markdown("---")
+
                 for _, row in dff.iterrows():
                     cor_hex, texto_status = obter_estilo(row['data'])
                     dt = datetime.strptime(row['data'], '%Y-%m-%d')
                     dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
+                    dia_pt = dias[dt.strftime('%A')]
+                    data_f = dt.strftime('%d/%m/%Y')
                     
-                    col_info, col_ed, col_del = st.columns([0.8, 0.1, 0.1])
-                    with col_info:
-                        label = f"{texto_status} | {dias[dt.strftime('%A')]} | {dt.strftime('%d/%m/%Y')} | **{row['assunto']}**"
-                        with st.expander(label):
-                            st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
+                    # Linha da Tabela
+                    c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.41, 0.05, 0.05])
                     
-                    if col_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
+                    c1.write(texto_status)
+                    c2.write(f"| {dia_pt}")
+                    c3.write(f"| {data_f}")
+                    
+                    # O Assunto vira um botão que abre a caixa (modal)
+                    if c4.button(f"| {row['assunto']}", key=f"btn_{row['id']}", use_container_width=True):
+                        abrir_descricao(row['assunto'], row['descricao'])
+                    
+                    if c5.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
                         st.session_state.val_data = datetime.strptime(row['data'], '%Y-%m-%d').date()
@@ -175,11 +196,13 @@ else:
                         st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
                         
-                    if col_del.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
+                    if c6.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
                             conn.commit()
                         st.rerun()
+                    
+                    st.markdown("<hr style='margin:2px 0px'>", unsafe_allow_html=True)
 
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
