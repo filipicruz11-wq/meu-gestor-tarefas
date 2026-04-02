@@ -53,13 +53,14 @@ st.markdown("""
         display: flex;
         align-items: center;
     }
-    /* ALTERAÇÃO 2: Diminuir espaços entre as linhas */
+    
+    /* ALTERAÇÃO 2: Diminuir os espaços entre as linhas */
     .stExpander {
         margin-bottom: -15px !important;
     }
     hr {
-        margin-top: 5px !important;
-        margin-bottom: 5px !important;
+        margin-top: 2px !important;
+        margin-bottom: 2px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -156,7 +157,7 @@ else:
             if i == 0: col_l.plotly_chart(fig, use_container_width=True)
             else: col_c.plotly_chart(fig, use_container_width=True)
 
-    # --- LISTA COM ALTERAÇÕES ---
+    # --- LISTA COM SEPARADORES TIPO COLUNA ---
     def listar(tipo_nome, tab):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='data')
@@ -169,13 +170,13 @@ else:
                     dia_pt = dias[dt.strftime('%A')]
                     data_f = dt.strftime('%d/%m/%Y')
                     
-                    # ALTERAÇÃO 1: Expander no início envolvendo toda a linha informativa
-                    c_info, c_ed, c_del = st.columns([0.85, 0.075, 0.075])
+                    # ALTERAÇÃO 1: Expander movido para o início da linha para abrir sobre tudo
+                    # Proporção ajustada para manter os botões no final
+                    c_expander, c_ed, c_del = st.columns([0.85, 0.075, 0.075])
                     
-                    with c_info:
-                        # O rótulo do expander agora contém todas as colunas de texto
-                        label_linha = f"{texto_status} | {dia_pt} | {data_f} | **{row['assunto']}**"
-                        with st.expander(label_linha):
+                    with c_expander:
+                        # Agora o expander contém Status, Dia, Data e Assunto no título
+                        with st.expander(f"{texto_status} | {dia_pt} | {data_f} | **{row['assunto']}**"):
                             st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
                     
                     if c_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
