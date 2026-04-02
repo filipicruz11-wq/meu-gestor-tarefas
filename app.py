@@ -53,15 +53,6 @@ st.markdown("""
         display: flex;
         align-items: center;
     }
-    
-    /* ALTERAÇÃO 2: Diminuir os espaços entre as linhas */
-    .stExpander {
-        margin-bottom: -15px !important;
-    }
-    hr {
-        margin-top: 2px !important;
-        margin-bottom: 2px !important;
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -170,13 +161,17 @@ else:
                     dia_pt = dias[dt.strftime('%A')]
                     data_f = dt.strftime('%d/%m/%Y')
                     
-                    # ALTERAÇÃO 1: Expander movido para o início da linha para abrir sobre tudo
-                    # Proporção ajustada para manter os botões no final
-                    c_expander, c_ed, c_del = st.columns([0.85, 0.075, 0.075])
+                    # Definindo as colunas: Status, Dia e Data fixos | Assunto Livre | Botões
+                    # Proporção: 15% status, 12% dia, 12% data, 46% assunto, 15% botões
+                    c_status, c_dia, c_data, c_assunto, c_ed, c_del = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                     
-                    with c_expander:
-                        # Agora o expander contém Status, Dia, Data e Assunto no título
-                        with st.expander(f"{texto_status} | {dia_pt} | {data_f} | **{row['assunto']}**"):
+                    with c_status: st.write(texto_status)
+                    with c_dia:    st.write(f"| {dia_pt}")
+                    with c_data:   st.write(f"| {data_f}")
+                    
+                    with c_assunto:
+                        # Aqui o assunto fica livre dentro de um expander
+                        with st.expander(f"| **{row['assunto']}**"):
                             st.write(row['descricao'] if row['descricao'] else "Sem descrição.")
                     
                     if c_ed.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
@@ -194,7 +189,7 @@ else:
                             conn.commit()
                         st.rerun()
                     
-                    st.markdown("---")
+                    st.markdown("---") # Linha divisória para manter a organização
 
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
