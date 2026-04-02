@@ -85,17 +85,17 @@ else:
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
-        # Adicionado INFORMAÇÃO à lista
-        lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO"]
+        # 1. Adicionado CONTATO à lista de tipos
+        lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
         tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
         
-        # Só mostra data se não for INFORMAÇÃO
-        if tipo != "INFORMAÇÃO":
+        # 2. Esconde data para INFORMAÇÃO e CONTATO
+        if tipo not in ["INFORMAÇÃO", "CONTATO"]:
             data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
         else:
-            data_venc = datetime.now().date() # Data padrão interna
+            data_venc = datetime.now().date()
             
         assunto = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
         desc = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
@@ -121,8 +121,8 @@ else:
             limpar_tudo()
             st.rerun()
 
-    # Adicionada a aba INFORMAÇÕES
-    t_dash, t_lem, t_com, t_info = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES"])
+    # 3. Adicionada a aba CONTATOS no menu superior
+    t_dash, t_lem, t_com, t_info, t_cont = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS"])
     
     try:
         df = pd.read_sql("SELECT * FROM tarefas", engine)
@@ -211,11 +211,11 @@ else:
                         st.rerun()
                     st.markdown("---")
 
-    # --- FUNÇÃO ESPECÍFICA PARA ABA INFORMAÇÕES (SEM DATA/DIA) ---
-    def listar_info(tipo_nome, tab):
+    # FUNÇÃO PARA ABAS SIMPLIFICADAS (INFORMAÇÕES E CONTATOS)
+    def listar_simplificado(tipo_nome, tab, icone="📌"):
         with tab:
             dff = df[df['tipo'] == tipo_nome].sort_values(by='assunto')
-            if dff.empty: st.info(f"Nenhuma informação encontrada.")
+            if dff.empty: st.info(f"Nada encontrado em {tipo_nome.lower()}s.")
             else:
                 h1, h2, h3 = st.columns([0.85, 0.075, 0.075])
                 h1.caption("ASSUNTO (Clique para ver detalhes)")
@@ -224,10 +224,10 @@ else:
                 for _, row in dff.iterrows():
                     c1, c2, c3 = st.columns([0.85, 0.075, 0.075])
                     
-                    if c1.button(f"📌 **{row['assunto']}**", key=f"btn_info_{row['id']}", width="stretch"):
+                    if c1.button(f"{icone} **{row['assunto']}**", key=f"btn_{tipo_nome}_{row['id']}", width="stretch"):
                         exibir_detalhes(row['assunto'], row['descricao'])
                     
-                    if c2.button("📝", key=f"ed_info_{row['id']}"):
+                    if c2.button("📝", key=f"ed_{tipo_nome}_{row['id']}"):
                         st.session_state.editando_id = row['id']
                         st.session_state.val_tipo = row['tipo']
                         st.session_state.val_assunto = row['assunto']
@@ -235,13 +235,15 @@ else:
                         st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
                         st.rerun()
                         
-                    if c3.button("🗑️", key=f"del_info_{row['id']}"):
+                    if c3.button("🗑️", key=f"del_{tipo_nome}_{row['id']}"):
                         with engine.connect() as conn:
                             conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
                             conn.commit()
                         st.rerun()
                     st.markdown("---")
 
+    # Chamada das listas
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
-    listar_info("INFORMAÇÃO", t_info)
+    listar_simplificado("INFORMAÇÃO", t_info, icone="📌")
+    listar_simplificado("CONTATO", t_cont, icone="👤")
