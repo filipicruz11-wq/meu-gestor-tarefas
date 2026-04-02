@@ -31,12 +31,11 @@ inicializar_db()
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
     if descricao:
-        # CORREÇÃO PARA O NEGRITO E QUEBRA DE LINHA
-        # O .replace garante que o Markdown entenda as quebras de linha e o negrito
-        texto_final = descricao.replace("\n", "  \n")
-        
-        # EXIBIÇÃO FINAL
-        st.markdown(texto_final)
+        # CORREÇÃO CRÍTICA: 
+        # 1. Substitui $ por \$ para não sumir com o cifrão (evita interpretação matemática)
+        # 2. Respeita as quebras de linha
+        texto_corrigido = descricao.replace("$", "\$").replace("\n", "  \n")
+        st.markdown(texto_corrigido)
     else:
         st.write("Sem descrição disponível.")
         
@@ -70,12 +69,9 @@ st.markdown("""
         border: 2px solid #ced4da !important;
     }
     
-    /* Impede o navegador de tentar corrigir o texto automaticamente */
-    textarea { 
-        spellcheck: false !important; 
-    }
+    textarea { spellcheck: false !important; }
 
-    /* Limpa o fundo de números que o Streamlit às vezes destaca */
+    /* Garante que blocos de código/números não tenham fundo colorido */
     code {
         background-color: transparent !important;
         color: inherit !important;
