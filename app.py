@@ -64,7 +64,6 @@ st.markdown("""
         margin-top: 5px !important;
         margin-bottom: 5px !important;
     }
-    /* Estilo para alinhar o texto dos botões à esquerda sem a barra */
     .stButton button {
         text-align: left !important;
         padding-left: 0px !important;
@@ -86,11 +85,18 @@ else:
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
-        lista_tipos = ["", "LEMBRETE", "COMPROMISSO"]
+        # Adicionado INFORMAÇÃO à lista
+        lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
         tipo = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
-        data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
+        
+        # Só mostra data se não for INFORMAÇÃO
+        if tipo != "INFORMAÇÃO":
+            data_venc = st.date_input("Vencimento", value=st.session_state.val_data, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
+        else:
+            data_venc = datetime.now().date() # Data padrão interna
+            
         assunto = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
         desc = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
         
@@ -115,7 +121,8 @@ else:
             limpar_tudo()
             st.rerun()
 
-    t_dash, t_lem, t_com = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS"])
+    # Adicionada a aba INFORMAÇÕES
+    t_dash, t_lem, t_com, t_info = st.tabs(["🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES"])
     
     try:
         df = pd.read_sql("SELECT * FROM tarefas", engine)
@@ -155,7 +162,6 @@ else:
                 title=f"{nome}S: {len(dff)}", 
                 height=250, 
                 margin=dict(l=10, r=50, t=40, b=10),
-                # OCULTAR EIXO X (Régua de números abaixo do gráfico)
                 xaxis=dict(visible=False),
                 yaxis=dict(categoryorder='array', categoryarray=ordem_categorias, showgrid=False)
             )
@@ -182,12 +188,10 @@ else:
                     data_f = dt.strftime('%d/%m/%Y')
                     
                     c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
-                    
                     c1.write(texto_status)
-                    c2.write(dia_pt) # Removida a barra |
-                    c3.write(data_f) # Removida a barra |
+                    c2.write(dia_pt)
+                    c3.write(data_f)
                     
-                    # Removida a barra | do botão de assunto
                     if c4.button(f"**{row['assunto']}**", key=f"btn_{row['id']}", width="stretch"):
                         exibir_detalhes(row['assunto'], row['descricao'])
                     
@@ -205,8 +209,39 @@ else:
                             conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
                             conn.commit()
                         st.rerun()
+                    st.markdown("---")
+
+    # --- FUNÇÃO ESPECÍFICA PARA ABA INFORMAÇÕES (SEM DATA/DIA) ---
+    def listar_info(tipo_nome, tab):
+        with tab:
+            dff = df[df['tipo'] == tipo_nome].sort_values(by='assunto')
+            if dff.empty: st.info(f"Nenhuma informação encontrada.")
+            else:
+                h1, h2, h3 = st.columns([0.85, 0.075, 0.075])
+                h1.caption("ASSUNTO (Clique para ver detalhes)")
+                st.markdown("---")
+
+                for _, row in dff.iterrows():
+                    c1, c2, c3 = st.columns([0.85, 0.075, 0.075])
                     
+                    if c1.button(f"📌 **{row['assunto']}**", key=f"btn_info_{row['id']}", width="stretch"):
+                        exibir_detalhes(row['assunto'], row['descricao'])
+                    
+                    if c2.button("📝", key=f"ed_info_{row['id']}"):
+                        st.session_state.editando_id = row['id']
+                        st.session_state.val_tipo = row['tipo']
+                        st.session_state.val_assunto = row['assunto']
+                        st.session_state.val_desc = row['descricao']
+                        st.session_state.campo_key = f"edit_{row['id']}_{datetime.now().timestamp()}"
+                        st.rerun()
+                        
+                    if c3.button("🗑️", key=f"del_info_{row['id']}"):
+                        with engine.connect() as conn:
+                            conn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": row['id']})
+                            conn.commit()
+                        st.rerun()
                     st.markdown("---")
 
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
+    listar_info("INFORMAÇÃO", t_info)
