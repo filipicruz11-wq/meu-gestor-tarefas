@@ -28,12 +28,10 @@ def inicializar_db():
 inicializar_db()
 
 # --- CAIXA DE DIÁLOGO (MODAL) ---
-# Alterado para width="large" para aumentar a largura da janela flutuante
 @st.dialog("Detalhes da Atividade", width="large")
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
     if descricao:
-        # Limpeza de resíduos de formatação e conversão de quebras de linha
         descricao_limpa = descricao.replace("<span>", "").replace("</span>", "")
         descricao_formatada = descricao_limpa.replace("\n", "<br>")
         
@@ -76,12 +74,11 @@ st.markdown(f"""
         border: 2px solid #ced4da !important;
     }}
     
-    /* AJUSTE DA FONTE E ESPAÇAMENTO NA DESCRIÇÃO */
     .caixa-texto-fix {{
         margin-top: 20px !important;
         font-family: sans-serif !important;
-        font-size: 14px !important; /* Tamanho da fonte reduzido para 14px */
-        line-height: 1.7 !important; /* Espaçamento entre linhas ajustado */
+        font-size: 14px !important;
+        line-height: 1.7 !important;
         color: #1E1E1E !important;
         white-space: normal !important;
         word-wrap: break-word !important;
@@ -107,12 +104,14 @@ else:
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         
-        lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
+        # Adicionado "MODELO" à lista de tipos
+        lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
         idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
         
         tipo_selecionado = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
         
-        tipos_sem_prazo = ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA"]
+        # Tipos que não precisam de data de vencimento
+        tipos_sem_prazo = ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
         if tipo_selecionado not in tipos_sem_prazo:
             data_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
         else:
@@ -142,9 +141,9 @@ else:
             limpar_tudo()
             st.rerun()
 
-    # ABAS
-    t_dash, t_lem, t_com, t_info, t_cont, t_aud = st.tabs([
-        "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS"
+    # ABAS (Adicionada a aba MODELOS)
+    t_dash, t_lem, t_com, t_info, t_cont, t_aud, t_mod = st.tabs([
+        "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS"
     ])
     
     try:
@@ -249,5 +248,6 @@ else:
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
     listar_simplificado("INFORMAÇÃO", t_info, icone="📌")
-    listar_simplificado("CONTATO", t_cont, icone="👤")
+    listar_simplificado("CONTATO", t_cont, icone="📞")
     listar_simplificado("AUDIÊNCIA", t_aud, icone="⚖️")
+    listar_simplificado("MODELO", t_mod, icone="📄") # Chamada para a nova aba
