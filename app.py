@@ -63,23 +63,42 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS (Ajustada para compactar linhas e calendário) ---
+# --- ESTILIZAÇÃO CSS (Calendário com fundo e bordas reforçadas) ---
 st.markdown(f"""
     <style>
     .caixa-texto-fix {{ margin-top: 10px !important; font-family: sans-serif !important; font-size: 14px !important; line-height: 1.5 !important; color: #1E1E1E !important; }}
     
-    /* Calendário mais compacto */
-    .cal-table {{ width: 100%; border-collapse: collapse; font-family: sans-serif; table-layout: fixed; }}
-    .cal-header {{ background-color: #f1f3f5; font-weight: bold; text-align: center; padding: 8px; border: 1px solid #dee2e6; font-size: 14px; }}
-    .cal-day {{ height: 80px; text-align: right; vertical-align: top; padding: 5px; border: 1px solid #dee2e6; font-size: 14px; overflow: hidden; }}
-    .dia-util {{ background-color: white; }}
+    /* Calendário com fundo colorido e bordas pretas finas */
+    .cal-table {{ 
+        width: 100%; 
+        border-collapse: collapse; 
+        font-family: sans-serif; 
+        table-layout: fixed; 
+        background-color: #f8f9fa; /* Fundo cinza bem claro para destacar do site */
+        border: 2px solid #adb5bd;
+    }}
+    .cal-header {{ 
+        background-color: #e9ecef; 
+        font-weight: bold; 
+        text-align: center; 
+        padding: 8px; 
+        border: 1px solid #adb5bd; 
+        font-size: 14px; 
+    }}
+    .cal-day {{ 
+        height: 85px; 
+        text-align: right; 
+        vertical-align: top; 
+        padding: 5px; 
+        border: 1px solid #adb5bd; 
+        font-size: 14px; 
+    }}
+    .dia-util {{ background-color: #ffffff; }}
     .dia-fds {{ background-color: #fff5f5; color: #e03131; }}
     .dia-feriado {{ background-color: #fff9db; color: #f08c00; font-weight: bold; }}
-    .dia-vazio {{ background-color: #f8f9fa; }}
+    .dia-vazio {{ background-color: #f1f3f5; border: 1px solid #dee2e6; }}
 
-    /* Espaçamento entre linhas de lançamentos */
     hr {{ margin: 4px 0px !important; }}
-    div[data-testid="stVerticalBlock"] > div {{ padding-top: 0.1rem !important; padding-bottom: 0.1rem !important; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -96,7 +115,6 @@ if not st.session_state.logado:
                 st.rerun()
             else: st.error("Dados incorretos.")
 else:
-    # --- SIDEBAR ---
     with st.sidebar:
         st.header("📝 " + ("Editar" if st.session_state.editando_id else "Novo"))
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
@@ -133,9 +151,9 @@ else:
             st.query_params.clear()
             st.rerun()
 
-    # --- ABAS ---
+    # --- ABAS (Nome INFORMAÇÕES corrigido) ---
     t_dash, t_lem, t_com, t_info, t_cont, t_aud, t_mod, t_cal = st.tabs([
-        "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFO", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
+        "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
     ])
 
     try: df = pd.read_sql("SELECT * FROM tarefas", engine)
@@ -151,7 +169,7 @@ else:
             else: return "blue", "🔵 FUTURO"
         except: return "blue", "🔵 SEM DATA"
 
-    # --- ABA INÍCIO (GRÁFICOS RESTAURADOS) ---
+    # --- ABA INÍCIO (GRÁFICOS ORDENADOS: Vermelho > Amarelo > Azul) ---
     with t_dash:
         st.subheader("Visão Geral")
         c_l, c_c = st.columns(2)
@@ -162,18 +180,18 @@ else:
                 cor, _ = obter_estilo(p)
                 cts[cor] += 1
             
+            # Ordenação fixa das barras
             fig = go.Figure(go.Bar(
-                x=[cts["red"], cts["gold"], cts["blue"]],
-                y=["Vencido", "2 dias", "3+ dias"],
+                x=[cts["blue"], cts["gold"], cts["red"]], # Invertido para o Plotly renderizar Red no topo
+                y=["3+ dias", "2 dias", "Vencido"],
                 orientation='h',
-                marker_color=["red", "gold", "blue"],
-                text=[cts["red"], cts["gold"], cts["blue"]], textposition='outside'
+                marker_color=["blue", "gold", "red"],
+                text=[cts["blue"], cts["gold"], cts["red"]], textposition='outside'
             ))
             fig.update_layout(title=f"{nome}S", height=230, margin=dict(l=10, r=50, t=40, b=10), xaxis=dict(visible=False))
             if i == 0: c_l.plotly_chart(fig, use_container_width=True)
             else: c_c.plotly_chart(fig, use_container_width=True)
 
-    # --- FUNÇÕES DE LISTAGEM ---
     def listar(tipo, tab):
         with tab:
             dff = df[df['tipo'] == tipo].sort_values(by='prazo')
@@ -186,8 +204,7 @@ else:
                 if c4.button(f"**{r['assunto']}**", key=f"b_{r['id']}", use_container_width=True):
                     exibir_detalhes(r['assunto'], r['descricao'])
                 if c5.button("📝", key=f"e_{r['id']}"):
-                    st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
-                    st.session_state.val_assunto, st.session_state.val_desc, st.session_state.val_prazo = r['assunto'], r['descricao'], dt.date()
+                    st.session_state.editando_id, st.session_state.val_tipo, st.session_state.val_assunto, st.session_state.val_desc, st.session_state.val_prazo = r['id'], r['tipo'], r['assunto'], r['descricao'], dt.date()
                     st.rerun()
                 if c6.button("🗑️", key=f"d_{r['id']}"):
                     with engine.connect() as cn: cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": r['id']}); cn.commit()
@@ -209,7 +226,7 @@ else:
                     st.rerun()
                 st.markdown("---")
 
-    # --- ABA CALENDÁRIO (COMPACTADO) ---
+    # --- ABA CALENDÁRIO ---
     with t_cal:
         c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
         with c_nav2:
@@ -244,7 +261,6 @@ else:
             html += '</tr>'
         st.markdown(html + '</table>', unsafe_allow_html=True)
 
-    # Chamar listagens das abas
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
     listar_simples("INFORMAÇÃO", t_info, "📌")
