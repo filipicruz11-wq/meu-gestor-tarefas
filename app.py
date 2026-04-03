@@ -32,15 +32,20 @@ inicializar_db()
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
     if descricao:
-        # A tag <pre> preserva espaços e quebras de linha exatamente como no banco
+        # A MÁGICA: Substitui quebras de linha do banco por tags <br> reais do HTML
+        # Também remove possíveis tags <span> fantasmas que apareceram nas suas fotos
+        descricao_limpa = descricao.replace("<span>", "").replace("</span>", "")
+        descricao_formatada = descricao_limpa.replace("\n", "<br>")
+        
         st.markdown(f"""
-            <div class="container-descricao">
-                <pre class="texto-final">{descricao}</pre>
+            <div class="caixa-texto-fix">
+                {descricao_formatada}
             </div>
         """, unsafe_allow_html=True)
     else:
         st.write("Sem descrição disponível.")
-        
+    
+    st.markdown("<br>", unsafe_allow_html=True)
     if st.button("Fechar", width="stretch"):
         st.rerun()
 
@@ -63,7 +68,7 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS (CORREÇÃO DEFINITIVA DE QUEBRA DE LINHA) ---
+# --- ESTILIZAÇÃO CSS (VERSÃO 4.0 - FOCO TOTAL EM LEGIBILIDADE) ---
 st.markdown(f"""
     <style data-cache-breaker="{int(time.time())}">
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {{
@@ -71,23 +76,15 @@ st.markdown(f"""
         border: 2px solid #ced4da !important;
     }}
     
-    /* Força o container a dar espaço do título */
-    .container-descricao {{
-        margin-top: 25px !important;
-        padding: 10px 0;
-    }}
-
-    /* O SEGREDO: pre-wrap mantém a quebra mas permite que o texto dobre se a tela for pequena */
-    .texto-final {{
-        white-space: pre-wrap !important;
-        word-wrap: break-word !important;
-        font-family: "Source Sans Pro", sans-serif !important; /* Mesma fonte do Streamlit */
+    /* ESTILO DO TEXTO DENTRO DO MODAL */
+    .caixa-texto-fix {{
+        margin-top: 20px !important;
+        font-family: sans-serif !important;
         font-size: 16px !important;
-        line-height: 1.6 !important;
-        color: #31333F !important;
-        background-color: transparent !important;
-        border: none !important;
-        overflow-x: hidden !important;
+        line-height: 1.8 !important; /* Espaçamento confortável entre linhas */
+        color: #1E1E1E !important;
+        white-space: normal !important; /* Deixa o <br> fazer o trabalho dele */
+        word-wrap: break-word !important;
     }}
     
     [data-testid="column"] {{ display: flex; align-items: center; }}
@@ -122,7 +119,7 @@ else:
             data_venc = datetime.now().date()
             
         assunto_input = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
-        desc_input = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}", height=200)
+        desc_input = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}", height=250)
         
         c1, c2 = st.columns(2)
         if c1.button("✅ Salvar", width="stretch"):
