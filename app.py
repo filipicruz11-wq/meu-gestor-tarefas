@@ -28,12 +28,12 @@ def inicializar_db():
 inicializar_db()
 
 # --- CAIXA DE DIÁLOGO (MODAL) ---
-@st.dialog("Detalhes da Atividade")
+# Alterado para width="large" para aumentar a largura da janela flutuante
+@st.dialog("Detalhes da Atividade", width="large")
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
     if descricao:
-        # A MÁGICA: Substitui quebras de linha do banco por tags <br> reais do HTML
-        # Também remove possíveis tags <span> fantasmas que apareceram nas suas fotos
+        # Limpeza de resíduos de formatação e conversão de quebras de linha
         descricao_limpa = descricao.replace("<span>", "").replace("</span>", "")
         descricao_formatada = descricao_limpa.replace("\n", "<br>")
         
@@ -68,7 +68,7 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS (VERSÃO 4.0 - FOCO TOTAL EM LEGIBILIDADE) ---
+# --- ESTILIZAÇÃO CSS ---
 st.markdown(f"""
     <style data-cache-breaker="{int(time.time())}">
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {{
@@ -76,14 +76,14 @@ st.markdown(f"""
         border: 2px solid #ced4da !important;
     }}
     
-    /* ESTILO DO TEXTO DENTRO DO MODAL */
+    /* AJUSTE DA FONTE E ESPAÇAMENTO NA DESCRIÇÃO */
     .caixa-texto-fix {{
         margin-top: 20px !important;
         font-family: sans-serif !important;
-        font-size: 16px !important;
-        line-height: 1.8 !important; /* Espaçamento confortável entre linhas */
+        font-size: 14px !important; /* Tamanho da fonte reduzido para 14px */
+        line-height: 1.7 !important; /* Espaçamento entre linhas ajustado */
         color: #1E1E1E !important;
-        white-space: normal !important; /* Deixa o <br> fazer o trabalho dele */
+        white-space: normal !important;
         word-wrap: break-word !important;
     }}
     
@@ -195,9 +195,9 @@ else:
                     st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                     st.markdown("---")
                     for _, row in dff.iterrows():
-                        cor_hex, texto_status = obter_estilo(row['prazo'])
                         dt = datetime.strptime(row['prazo'], '%Y-%m-%d')
                         dias = {"Monday":"SEGUNDA", "Tuesday":"TERÇA", "Wednesday":"QUARTA", "Thursday":"QUINTA", "Friday":"SEXTA", "Saturday":"SÁBADO", "Sunday":"DOMINGO"}
+                        cor_hex, texto_status = obter_estilo(row['prazo'])
                         
                         c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                         c1.write(texto_status)
