@@ -32,8 +32,12 @@ inicializar_db()
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
     if descricao:
-        # Adicionamos um parágrafo vazio antes para garantir que a 1ª linha não cole no título
-        st.markdown(f'<div class="caixa-texto-cejusc"><pre>{descricao}</pre></div>', unsafe_allow_html=True)
+        # A tag <pre> preserva espaços e quebras de linha exatamente como no banco
+        st.markdown(f"""
+            <div class="container-descricao">
+                <pre class="texto-final">{descricao}</pre>
+            </div>
+        """, unsafe_allow_html=True)
     else:
         st.write("Sem descrição disponível.")
         
@@ -59,36 +63,36 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS (CORREÇÃO DE ESPAÇAMENTO DA 1ª LINHA) ---
+# --- ESTILIZAÇÃO CSS (CORREÇÃO DEFINITIVA DE QUEBRA DE LINHA) ---
 st.markdown(f"""
     <style data-cache-breaker="{int(time.time())}">
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {{
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
     }}
-    textarea {{ spellcheck: false !important; }}
+    
+    /* Força o container a dar espaço do título */
+    .container-descricao {{
+        margin-top: 25px !important;
+        padding: 10px 0;
+    }}
+
+    /* O SEGREDO: pre-wrap mantém a quebra mas permite que o texto dobre se a tela for pequena */
+    .texto-final {{
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        font-family: "Source Sans Pro", sans-serif !important; /* Mesma fonte do Streamlit */
+        font-size: 16px !important;
+        line-height: 1.6 !important;
+        color: #31333F !important;
+        background-color: transparent !important;
+        border: none !important;
+        overflow-x: hidden !important;
+    }}
+    
     [data-testid="column"] {{ display: flex; align-items: center; }}
     hr {{ margin-top: 5px !important; margin-bottom: 5px !important; }}
     .stButton button {{ text-align: left !important; padding-left: 0px !important; }}
-    
-    /* ESTILO REFORÇADO PARA A DESCRIÇÃO */
-    .caixa-texto-cejusc {{
-        margin-top: 20px !important; /* Força espaço após o título */
-        display: block !important;
-    }}
-    
-    .caixa-texto-cejusc pre {{
-        font-family: inherit !important;
-        white-space: pre-wrap !important; /* Mantém quebras de linha */
-        word-wrap: break-word !important;
-        background-color: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        color: inherit !important;
-        font-size: 16px !important;
-        line-height: 1.5 !important; /* Melhora o espaçamento entre linhas */
-    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -118,7 +122,7 @@ else:
             data_venc = datetime.now().date()
             
         assunto_input = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
-        desc_input = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}")
+        desc_input = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}", height=200)
         
         c1, c2 = st.columns(2)
         if c1.button("✅ Salvar", width="stretch"):
