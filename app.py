@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import datetime
 import plotly.graph_objects as go
 from sqlalchemy import create_engine, text
-import time
 import calendar
 import holidays
 
@@ -47,57 +46,35 @@ if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
+# Inicialização de valores
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
 if 'val_prazo' not in st.session_state: st.session_state.val_prazo = datetime.now().date()
 
+# Controle do calendário visual
 if 'cal_mes' not in st.session_state: st.session_state.cal_mes = datetime.now().month
 if 'cal_ano' not in st.session_state: st.session_state.cal_ano = datetime.now().year
 
 def limpar_tudo():
     st.session_state.editando_id = None
     st.session_state.val_tipo = ""
-    st.session_state.val_prazo = datetime.now().date()
     st.session_state.val_assunto = ""
     st.session_state.val_desc = ""
+    st.session_state.val_prazo = datetime.now().date()
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS (Calendário com fundo e bordas reforçadas) ---
+# --- ESTILIZAÇÃO CSS ---
 st.markdown(f"""
     <style>
     .caixa-texto-fix {{ margin-top: 10px !important; font-family: sans-serif !important; font-size: 14px !important; line-height: 1.5 !important; color: #1E1E1E !important; }}
-    
-    /* Calendário com fundo colorido e bordas pretas finas */
-    .cal-table {{ 
-        width: 100%; 
-        border-collapse: collapse; 
-        font-family: sans-serif; 
-        table-layout: fixed; 
-        background-color: #f8f9fa; /* Fundo cinza bem claro para destacar do site */
-        border: 2px solid #adb5bd;
-    }}
-    .cal-header {{ 
-        background-color: #e9ecef; 
-        font-weight: bold; 
-        text-align: center; 
-        padding: 8px; 
-        border: 1px solid #adb5bd; 
-        font-size: 14px; 
-    }}
-    .cal-day {{ 
-        height: 85px; 
-        text-align: right; 
-        vertical-align: top; 
-        padding: 5px; 
-        border: 1px solid #adb5bd; 
-        font-size: 14px; 
-    }}
+    .cal-table {{ width: 100%; border-collapse: collapse; font-family: sans-serif; table-layout: fixed; background-color: #f8f9fa; border: 2px solid #adb5bd; }}
+    .cal-header {{ background-color: #e9ecef; font-weight: bold; text-align: center; padding: 8px; border: 1px solid #adb5bd; font-size: 14px; }}
+    .cal-day {{ height: 85px; text-align: right; vertical-align: top; padding: 5px; border: 1px solid #adb5bd; font-size: 14px; }}
     .dia-util {{ background-color: #ffffff; }}
     .dia-fds {{ background-color: #fff5f5; color: #e03131; }}
     .dia-feriado {{ background-color: #fff9db; color: #f08c00; font-weight: bold; }}
     .dia-vazio {{ background-color: #f1f3f5; border: 1px solid #dee2e6; }}
-
     hr {{ margin: 4px 0px !important; }}
     </style>
     """, unsafe_allow_html=True)
@@ -115,20 +92,24 @@ if not st.session_state.logado:
                 st.rerun()
             else: st.error("Dados incorretos.")
 else:
+    # --- SIDEBAR (CADASTRO) ---
     with st.sidebar:
         st.header("📝 " + ("Editar" if st.session_state.editando_id else "Novo"))
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
-        tipo_sel = st.selectbox("Tipo", lista_tipos, key=f"t_{st.session_state.campo_key}")
         
-        if tipo_sel not in ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]:
-            dt_venc = st.date_input("Vencimento", value=st.session_state.val_prazo)
-        else: dt_venc = datetime.now().date()
+        # Uso de chaves dinâmicas para permitir o reset pelo botão limpar
+        tipo_sel = st.selectbox("Tipo", lista_tipos, index=lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0, key=f"sel_{st.session_state.campo_key}")
+        
+        if tipo_sel in ["LEMBRETE", "COMPROMISSO"] or tipo_sel == "":
+            dt_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"dat_{st.session_state.campo_key}")
+        else:
+            dt_venc = datetime.now().date()
             
-        ass_in = st.text_input("Assunto", value=st.session_state.val_assunto)
-        des_in = st.text_area("Descrição", value=st.session_state.val_desc, height=150)
+        ass_in = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"ass_{st.session_state.campo_key}")
+        des_in = st.text_area("Descrição", value=st.session_state.val_desc, height=150, key=f"des_{st.session_state.campo_key}")
         
         if st.button("✅ Salvar", use_container_width=True):
-            if not tipo_sel or not ass_in: st.error("Erro!")
+            if not tipo_sel or not ass_in: st.error("Preencha Tipo e Assunto!")
             else:
                 with engine.connect() as conn:
                     p = {"t": tipo_sel, "p": str(dt_venc), "a": ass_in, "de": des_in}
@@ -138,7 +119,7 @@ else:
                     else:
                         conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), p)
                     conn.commit()
-                st.success("OK!")
+                st.success("Salvo com sucesso!")
                 limpar_tudo()
                 st.rerun()
         
@@ -151,7 +132,7 @@ else:
             st.query_params.clear()
             st.rerun()
 
-    # --- ABAS (Nome INFORMAÇÕES corrigido) ---
+    # --- ABAS ---
     t_dash, t_lem, t_com, t_info, t_cont, t_aud, t_mod, t_cal = st.tabs([
         "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
     ])
@@ -169,7 +150,7 @@ else:
             else: return "blue", "🔵 FUTURO"
         except: return "blue", "🔵 SEM DATA"
 
-    # --- ABA INÍCIO (GRÁFICOS ORDENADOS: Vermelho > Amarelo > Azul) ---
+    # --- ABA INÍCIO ---
     with t_dash:
         st.subheader("Visão Geral")
         c_l, c_c = st.columns(2)
@@ -180,9 +161,8 @@ else:
                 cor, _ = obter_estilo(p)
                 cts[cor] += 1
             
-            # Ordenação fixa das barras
             fig = go.Figure(go.Bar(
-                x=[cts["blue"], cts["gold"], cts["red"]], # Invertido para o Plotly renderizar Red no topo
+                x=[cts["blue"], cts["gold"], cts["red"]],
                 y=["3+ dias", "2 dias", "Vencido"],
                 orientation='h',
                 marker_color=["blue", "gold", "red"],
@@ -192,6 +172,7 @@ else:
             if i == 0: c_l.plotly_chart(fig, use_container_width=True)
             else: c_c.plotly_chart(fig, use_container_width=True)
 
+    # --- FUNÇÕES DE LISTAGEM ---
     def listar(tipo, tab):
         with tab:
             dff = df[df['tipo'] == tipo].sort_values(by='prazo')
@@ -204,7 +185,11 @@ else:
                 if c4.button(f"**{r['assunto']}**", key=f"b_{r['id']}", use_container_width=True):
                     exibir_detalhes(r['assunto'], r['descricao'])
                 if c5.button("📝", key=f"e_{r['id']}"):
-                    st.session_state.editando_id, st.session_state.val_tipo, st.session_state.val_assunto, st.session_state.val_desc, st.session_state.val_prazo = r['id'], r['tipo'], r['assunto'], r['descricao'], dt.date()
+                    st.session_state.editando_id = r['id']
+                    st.session_state.val_tipo = r['tipo']
+                    st.session_state.val_assunto = r['assunto']
+                    st.session_state.val_desc = r['descricao']
+                    st.session_state.val_prazo = dt.date()
                     st.rerun()
                 if c6.button("🗑️", key=f"d_{r['id']}"):
                     with engine.connect() as cn: cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": r['id']}); cn.commit()
@@ -219,14 +204,17 @@ else:
                 if c1.button(f"{icone} **{r['assunto']}**", key=f"s_{r['id']}", use_container_width=True):
                     exibir_detalhes(r['assunto'], r['descricao'])
                 if c2.button("📝", key=f"es_{r['id']}"):
-                    st.session_state.editando_id, st.session_state.val_tipo, st.session_state.val_assunto, st.session_state.val_desc = r['id'], r['tipo'], r['assunto'], r['descricao']
+                    st.session_state.editando_id = r['id']
+                    st.session_state.val_tipo = r['tipo']
+                    st.session_state.val_assunto = r['assunto']
+                    st.session_state.val_desc = r['descricao']
                     st.rerun()
                 if c3.button("🗑️", key=f"ds_{r['id']}"):
                     with engine.connect() as cn: cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": r['id']}); cn.commit()
                     st.rerun()
                 st.markdown("---")
 
-    # --- ABA CALENDÁRIO ---
+    # --- ABA CALENDÁRIO (DOMINGO COMO 1º DIA) ---
     with t_cal:
         c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
         with c_nav2:
@@ -242,18 +230,25 @@ else:
                 if st.session_state.cal_mes > 12: st.session_state.cal_mes, st.session_state.cal_ano = 1, st.session_state.cal_ano + 1
                 st.rerun()
 
+        # Configura o calendário para começar no Domingo
+        calendar.setfirstweekday(calendar.SUNDAY)
         cal = calendar.monthcalendar(st.session_state.cal_ano, st.session_state.cal_mes)
         br_hols = holidays.BR()
+        
         html = '<table class="cal-table"><tr>'
-        for sem in ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]: html += f'<th class="cal-header">{sem}</th>'
+        # Cabeçalhos começando por Domingo
+        for sem in ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]: 
+            html += f'<th class="cal-header">{sem}</th>'
         html += '</tr>'
+        
         for semana in cal:
             html += '<tr>'
             for i, dia in enumerate(semana):
                 if dia == 0: html += '<td class="cal-day dia-vazio"></td>'
                 else:
                     data_at = datetime(st.session_state.cal_ano, st.session_state.cal_mes, dia)
-                    classe = "dia-fds" if i >= 5 else "dia-util"
+                    # No padrão Sunday=0, Domingo é índice 0 e Sábado é índice 6
+                    classe = "dia-fds" if i == 0 or i == 6 else "dia-util"
                     feriado = br_hols.get(data_at)
                     if feriado: classe = "dia-feriado"
                     txt_f = f'<div style="font-size:9px; color:#f08c00; line-height:1">{feriado}</div>' if feriado else ""
@@ -261,6 +256,7 @@ else:
             html += '</tr>'
         st.markdown(html + '</table>', unsafe_allow_html=True)
 
+    # Execução das listagens
     listar("LEMBRETE", t_lem)
     listar("COMPROMISSO", t_com)
     listar_simples("INFORMAÇÃO", t_info, "📌")
