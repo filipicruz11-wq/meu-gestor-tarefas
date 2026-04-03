@@ -30,8 +30,8 @@ inicializar_db()
 @st.dialog("Detalhes da Atividade")
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
-    # Usamos st.text para evitar que o sistema destaque valores em dinheiro com fundo verde
     if descricao:
+        # st.text é usado para manter a formatação original sem interferência do markdown
         st.text(descricao)
     else:
         st.write("Sem descrição disponível.")
@@ -58,7 +58,7 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS ---
+# --- ESTILIZAÇÃO CSS (ALTERADA PARA CORREÇÃO DE CACHE) ---
 st.markdown("""
     <style>
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
@@ -69,13 +69,22 @@ st.markdown("""
     [data-testid="column"] { display: flex; align-items: center; }
     hr { margin-top: 5px !important; margin-bottom: 5px !important; }
     .stButton button { text-align: left !important; padding-left: 0px !important; }
-    /* Estilo para o st.text ficar com fonte padrão e sem fundo cinza */
-    .stText pre {
+    
+    /* FIX DEFINITIVO PARA QUEBRA DE LINHA NO MODAL */
+    [data-testid="stText"] pre {
         font-family: inherit !important;
         background-color: transparent !important;
         border: none !important;
         padding: 0 !important;
-        white-space: pre-wrap !important;
+        white-space: pre-wrap !important; /* Mantém quebras de linha e espaços */
+        word-wrap: break-word !important; /* Força quebra de palavras longas */
+        overflow-wrap: break-word !important;
+        color: inherit !important;
+    }
+    
+    /* Ajuste de largura para garantir preenchimento total no modal */
+    div[data-testid="stDialog"] .stText {
+        width: 100% !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -188,8 +197,8 @@ else:
                         
                         c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
                         c1.write(texto_status)
-                        c2.write(dias[dt.strftime('%A')]) # Barra removida
-                        c3.write(dt.strftime('%d/%m/%Y')) # Barra removida
+                        c2.write(dias[dt.strftime('%A')])
+                        c3.write(dt.strftime('%d/%m/%Y'))
                         
                         if c4.button(f"**{row['assunto']}**", key=f"b_{row['id']}", width="stretch"):
                             exibir_detalhes(row['assunto'], row['descricao'])
