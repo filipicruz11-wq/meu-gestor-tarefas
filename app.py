@@ -24,7 +24,7 @@ def inicializar_db():
 
 inicializar_db()
 
-# --- CAIXA DE DIÁLOGO (MODAL) ---
+# --- CAIXA DE DIÁLOGO: DETALHES ---
 @st.dialog("Detalhes da Atividade", width="large")
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
@@ -38,6 +38,22 @@ def exibir_detalhes(assunto, descricao):
     if st.button("Fechar", width="stretch"):
         st.rerun()
 
+# --- CAIXA DE DIÁLOGO: CONFIRMAR EXCLUSÃO (NOVA) ---
+@st.dialog("Confirmar Exclusão")
+def confirmar_exclusao(id_item, assunto):
+    st.warning(f"Deseja realmente excluir o lançamento: **{assunto}**?")
+    st.markdown("Esta ação não pode ser desfeita.")
+    col1, col2 = st.columns(2)
+    if col1.button("✅ Sim, excluir", use_container_width=True, type="primary"):
+        with engine.connect() as cn:
+            cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": id_item})
+            cn.commit()
+        st.success("Excluído!")
+        time.sleep(0.5) # Pequena pausa para o usuário ver o feedback
+        st.rerun()
+    if col2.button("❌ Não, cancelar", use_container_width=True):
+        st.rerun()
+
 # --- ESTADOS DO SISTEMA ---
 if "logged" in st.query_params and st.query_params["logged"] == "true":
     st.session_state.logado = True
@@ -46,15 +62,15 @@ if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
-# Inicialização de valores de formulário
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
 if 'val_prazo' not in st.session_state: st.session_state.val_prazo = datetime.now().date()
 
-# Controle do calendário visual
 if 'cal_mes' not in st.session_state: st.session_state.cal_mes = datetime.now().month
 if 'cal_ano' not in st.session_state: st.session_state.cal_ano = datetime.now().year
+
+import time # Necessário para o feedback visual de exclusão
 
 def limpar_tudo():
     st.session_state.editando_id = None
@@ -62,7 +78,6 @@ def limpar_tudo():
     st.session_state.val_assunto = ""
     st.session_state.val_desc = ""
     st.session_state.val_prazo = datetime.now().date()
-    # Trocar a key força o Streamlit a destruir e recriar os widgets, limpando-os de fato
     st.session_state.campo_key = f"k_{datetime.now().timestamp()}"
 
 # --- ESTILIZAÇÃO CSS ---
@@ -93,23 +108,19 @@ if not st.session_state.logado:
                 st.rerun()
             else: st.error("Dados incorretos.")
 else:
-    # --- SIDEBAR (CADASTRO) ---
+    # --- SIDEBAR ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
         
-        # O index deve ser calculado dinamicamente com base no que está no session_state
-        try:
-            idx_tipo = lista_tipos.index(st.session_state.val_tipo)
-        except:
-            idx_tipo = 0
+        try: idx_tipo = lista_tipos.index(st.session_state.val_tipo)
+        except: idx_tipo = 0
 
         tipo_sel = st.selectbox("Tipo", lista_tipos, index=idx_tipo, key=f"sel_{st.session_state.campo_key}")
         
         if tipo_sel in ["LEMBRETE", "COMPROMISSO", ""]:
             dt_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"dat_{st.session_state.campo_key}")
-        else:
-            dt_venc = datetime.now().date()
+        else: dt_venc = datetime.now().date()
             
         ass_in = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"ass_{st.session_state.campo_key}")
         des_in = st.text_area("Descrição", value=st.session_state.val_desc, height=150, key=f"des_{st.session_state.campo_key}")
@@ -192,18 +203,13 @@ else:
                     exibir_detalhes(r['assunto'], r['descricao'])
                 
                 if c5.button("📝", key=f"e_{r['id']}"):
-                    # Ao clicar em editar, atualizamos os valores e mudamos a key para forçar o formulário a ler
-                    st.session_state.editando_id = r['id']
-                    st.session_state.val_tipo = r['tipo']
-                    st.session_state.val_assunto = r['assunto']
-                    st.session_state.val_desc = r['descricao']
-                    st.session_state.val_prazo = dt.date()
+                    st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
+                    st.session_state.val_assunto, st.session_state.val_desc, st.session_state.val_prazo = r['assunto'], r['descricao'], dt.date()
                     st.session_state.campo_key = f"edit_{r['id']}"
                     st.rerun()
                 
                 if c6.button("🗑️", key=f"d_{r['id']}"):
-                    with engine.connect() as cn: cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": r['id']}); cn.commit()
-                    st.rerun()
+                    confirmar_exclusao(r['id'], r['assunto']) # Chama a confirmação
                 st.markdown("---")
 
     def listar_simples(tipo, tab, icone):
@@ -215,16 +221,13 @@ else:
                     exibir_detalhes(r['assunto'], r['descricao'])
                 
                 if c2.button("📝", key=f"es_{r['id']}"):
-                    st.session_state.editando_id = r['id']
-                    st.session_state.val_tipo = r['tipo']
-                    st.session_state.val_assunto = r['assunto']
-                    st.session_state.val_desc = r['descricao']
+                    st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
+                    st.session_state.val_assunto, st.session_state.val_desc = r['assunto'], r['descricao']
                     st.session_state.campo_key = f"edit_s_{r['id']}"
                     st.rerun()
                     
                 if c3.button("🗑️", key=f"ds_{r['id']}"):
-                    with engine.connect() as cn: cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": r['id']}); cn.commit()
-                    st.rerun()
+                    confirmar_exclusao(r['id'], r['assunto']) # Chama a confirmação
                 st.markdown("---")
 
     # --- ABA CALENDÁRIO ---
@@ -248,10 +251,8 @@ else:
         br_hols = holidays.BR()
         
         html = '<table class="cal-table"><tr>'
-        for sem in ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]: 
-            html += f'<th class="cal-header">{sem}</th>'
+        for sem in ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]: html += f'<th class="cal-header">{sem}</th>'
         html += '</tr>'
-        
         for semana in cal:
             html += '<tr>'
             for i, dia in enumerate(semana):
