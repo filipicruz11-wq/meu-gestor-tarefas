@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 import plotly.graph_objects as go
 from sqlalchemy import create_engine, text
+import time
 
 # Configuração da página
 st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide")
@@ -31,8 +32,8 @@ inicializar_db()
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
     if descricao:
-        # st.text é usado para manter a formatação original sem interferência do markdown
-        st.text(descricao)
+        # Forçamos uma div com classe específica para garantir o estilo
+        st.markdown(f'<div class="caixa-texto-cejusc"><pre>{descricao}</pre></div>', unsafe_allow_html=True)
     else:
         st.write("Sem descrição disponível.")
         
@@ -58,34 +59,31 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS (ALTERADA PARA CORREÇÃO DE CACHE) ---
-st.markdown("""
-    <style>
-    .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
+# --- ESTILIZAÇÃO CSS (VERSÃO ANTI-CACHE COM ID DINÂMICO) ---
+# O t={int(time.time())} gera um número novo toda vez que o app inicia, forçando o navegador a atualizar
+st.markdown(f"""
+    <style data-cache-breaker="{int(time.time())}">
+    .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {{
         background-color: #f1f3f5 !important;
         border: 2px solid #ced4da !important;
-    }
-    textarea { spellcheck: false !important; }
-    [data-testid="column"] { display: flex; align-items: center; }
-    hr { margin-top: 5px !important; margin-bottom: 5px !important; }
-    .stButton button { text-align: left !important; padding-left: 0px !important; }
+    }}
+    textarea {{ spellcheck: false !important; }}
+    [data-testid="column"] {{ display: flex; align-items: center; }}
+    hr {{ margin-top: 5px !important; margin-bottom: 5px !important; }}
+    .stButton button {{ text-align: left !important; padding-left: 0px !important; }}
     
-    /* FIX DEFINITIVO PARA QUEBRA DE LINHA NO MODAL */
-    [data-testid="stText"] pre {
+    /* ESTILO REFORÇADO PARA A DESCRIÇÃO */
+    .caixa-texto-cejusc pre {{
         font-family: inherit !important;
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
         background-color: transparent !important;
         border: none !important;
         padding: 0 !important;
-        white-space: pre-wrap !important; /* Mantém quebras de linha e espaços */
-        word-wrap: break-word !important; /* Força quebra de palavras longas */
-        overflow-wrap: break-word !important;
+        margin: 0 !important;
         color: inherit !important;
-    }
-    
-    /* Ajuste de largura para garantir preenchimento total no modal */
-    div[data-testid="stDialog"] .stText {
-        width: 100% !important;
-    }
+        font-size: 16px !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
