@@ -46,7 +46,7 @@ if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
-# Inicialização de valores
+# Inicialização de valores de formulário
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
@@ -62,7 +62,8 @@ def limpar_tudo():
     st.session_state.val_assunto = ""
     st.session_state.val_desc = ""
     st.session_state.val_prazo = datetime.now().date()
-    st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
+    # Trocar a key força o Streamlit a destruir e recriar os widgets, limpando-os de fato
+    st.session_state.campo_key = f"k_{datetime.now().timestamp()}"
 
 # --- ESTILIZAÇÃO CSS ---
 st.markdown(f"""
@@ -94,13 +95,18 @@ if not st.session_state.logado:
 else:
     # --- SIDEBAR (CADASTRO) ---
     with st.sidebar:
-        st.header("📝 " + ("Editar" if st.session_state.editando_id else "Novo"))
+        st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
         
-        # Uso de chaves dinâmicas para permitir o reset pelo botão limpar
-        tipo_sel = st.selectbox("Tipo", lista_tipos, index=lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0, key=f"sel_{st.session_state.campo_key}")
+        # O index deve ser calculado dinamicamente com base no que está no session_state
+        try:
+            idx_tipo = lista_tipos.index(st.session_state.val_tipo)
+        except:
+            idx_tipo = 0
+
+        tipo_sel = st.selectbox("Tipo", lista_tipos, index=idx_tipo, key=f"sel_{st.session_state.campo_key}")
         
-        if tipo_sel in ["LEMBRETE", "COMPROMISSO"] or tipo_sel == "":
+        if tipo_sel in ["LEMBRETE", "COMPROMISSO", ""]:
             dt_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"dat_{st.session_state.campo_key}")
         else:
             dt_venc = datetime.now().date()
@@ -119,7 +125,7 @@ else:
                     else:
                         conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), p)
                     conn.commit()
-                st.success("Salvo com sucesso!")
+                st.success("Salvo!")
                 limpar_tudo()
                 st.rerun()
         
@@ -184,13 +190,17 @@ else:
                 c2.write(dt.strftime('%d/%m/%Y'))
                 if c4.button(f"**{r['assunto']}**", key=f"b_{r['id']}", use_container_width=True):
                     exibir_detalhes(r['assunto'], r['descricao'])
+                
                 if c5.button("📝", key=f"e_{r['id']}"):
+                    # Ao clicar em editar, atualizamos os valores e mudamos a key para forçar o formulário a ler
                     st.session_state.editando_id = r['id']
                     st.session_state.val_tipo = r['tipo']
                     st.session_state.val_assunto = r['assunto']
                     st.session_state.val_desc = r['descricao']
                     st.session_state.val_prazo = dt.date()
+                    st.session_state.campo_key = f"edit_{r['id']}"
                     st.rerun()
+                
                 if c6.button("🗑️", key=f"d_{r['id']}"):
                     with engine.connect() as cn: cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": r['id']}); cn.commit()
                     st.rerun()
@@ -203,18 +213,21 @@ else:
                 c1, c2, c3 = st.columns([0.85, 0.075, 0.075])
                 if c1.button(f"{icone} **{r['assunto']}**", key=f"s_{r['id']}", use_container_width=True):
                     exibir_detalhes(r['assunto'], r['descricao'])
+                
                 if c2.button("📝", key=f"es_{r['id']}"):
                     st.session_state.editando_id = r['id']
                     st.session_state.val_tipo = r['tipo']
                     st.session_state.val_assunto = r['assunto']
                     st.session_state.val_desc = r['descricao']
+                    st.session_state.campo_key = f"edit_s_{r['id']}"
                     st.rerun()
+                    
                 if c3.button("🗑️", key=f"ds_{r['id']}"):
                     with engine.connect() as cn: cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": r['id']}); cn.commit()
                     st.rerun()
                 st.markdown("---")
 
-    # --- ABA CALENDÁRIO (DOMINGO COMO 1º DIA) ---
+    # --- ABA CALENDÁRIO ---
     with t_cal:
         c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
         with c_nav2:
@@ -230,13 +243,11 @@ else:
                 if st.session_state.cal_mes > 12: st.session_state.cal_mes, st.session_state.cal_ano = 1, st.session_state.cal_ano + 1
                 st.rerun()
 
-        # Configura o calendário para começar no Domingo
         calendar.setfirstweekday(calendar.SUNDAY)
         cal = calendar.monthcalendar(st.session_state.cal_ano, st.session_state.cal_mes)
         br_hols = holidays.BR()
         
         html = '<table class="cal-table"><tr>'
-        # Cabeçalhos começando por Domingo
         for sem in ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]: 
             html += f'<th class="cal-header">{sem}</th>'
         html += '</tr>'
@@ -247,7 +258,6 @@ else:
                 if dia == 0: html += '<td class="cal-day dia-vazio"></td>'
                 else:
                     data_at = datetime(st.session_state.cal_ano, st.session_state.cal_mes, dia)
-                    # No padrão Sunday=0, Domingo é índice 0 e Sábado é índice 6
                     classe = "dia-fds" if i == 0 or i == 6 else "dia-util"
                     feriado = br_hols.get(data_at)
                     if feriado: classe = "dia-feriado"
