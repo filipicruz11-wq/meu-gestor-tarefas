@@ -40,15 +40,21 @@ def exibir_detalhes(assunto, descricao):
         st.rerun()
 
 # --- ESTADOS DO SISTEMA ---
+# Tenta recuperar o login da URL para persistir no F5
+query_params = st.query_params
+if "logged" in query_params and query_params["logged"] == "true":
+    st.session_state.logado = True
+
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
-if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
-if 'val_prazo' not in st.session_state: st.session_state.val_prazo = datetime.now().date()
-if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
-if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
-# Controle de navegação do calendário
+# Estados para o formulário de cadastro
+for key in ['val_tipo', 'val_assunto', 'val_desc']:
+    if key not in st.session_state: st.session_state[key] = ""
+if 'val_prazo' not in st.session_state: st.session_state.val_prazo = datetime.now().date()
+
+# Controle do calendário
 if 'cal_mes' not in st.session_state: st.session_state.cal_mes = datetime.now().month
 if 'cal_ano' not in st.session_state: st.session_state.cal_ano = datetime.now().year
 
@@ -63,64 +69,59 @@ def limpar_tudo():
 # --- ESTILIZAÇÃO CSS ---
 st.markdown(f"""
     <style>
-    .caixa-texto-fix {{
-        margin-top: 20px !important;
-        font-family: sans-serif !important;
-        font-size: 14px !important;
-        line-height: 1.7 !important;
-        color: #1E1E1E !important;
-    }}
-    .cal-table {{ width: 100%; border-collapse: collapse; font-family: sans-serif; }}
-    .cal-header {{ background-color: #f1f3f5; font-weight: bold; text-align: center; padding: 10px; border: 1px solid #dee2e6; }}
-    .cal-day {{ height: 100px; width: 14%; text-align: right; vertical-align: top; padding: 10px; border: 1px solid #dee2e6; font-size: 18px; }}
+    .caixa-texto-fix {{ margin-top: 20px !important; font-family: sans-serif !important; font-size: 14px !important; line-height: 1.7 !important; color: #1E1E1E !important; }}
+    .cal-table {{ width: 100%; border-collapse: collapse; font-family: sans-serif; table-layout: fixed; }}
+    .cal-header {{ background-color: #f1f3f5; font-weight: bold; text-align: center; padding: 15px; border: 1px solid #dee2e6; }}
+    .cal-day {{ height: 120px; text-align: right; vertical-align: top; padding: 10px; border: 1px solid #dee2e6; font-size: 18px; }}
     .dia-util {{ background-color: white; }}
-    .dia-fds {{ background-color: #fff5f5; color: #e03131; }} /* Vermelho claro para FDS */
-    .dia-feriado {{ background-color: #fff9db; color: #f08c00; font-weight: bold; }} /* Amarelo para Feriados */
+    .dia-fds {{ background-color: #fff5f5; color: #e03131; }}
+    .dia-feriado {{ background-color: #fff9db; color: #f08c00; font-weight: bold; }}
     .dia-vazio {{ background-color: #f8f9fa; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- TELA DE LOGIN (COM SUPORTE A ENTER) ---
+# --- TELA DE LOGIN ---
 if not st.session_state.logado:
     st.title("🔐 Acesso Restrito")
-    with st.form("login_form"):
-        u = st.text_input("Usuário")
-        s = st.text_input("Senha", type="password")
-        submit = st.form_submit_button("ENTRAR NO SISTEMA", use_container_width=True)
-        if submit:
-            if u == "admin" and s == "123456":
-                st.session_state.logado = True
-                st.rerun()
-            else:
-                st.error("Dados incorretos.")
+    with st.container():
+        with st.form("login_form"):
+            u = st.text_input("Usuário")
+            s = st.text_input("Senha", type="password")
+            submit = st.form_submit_button("ENTRAR NO SISTEMA", use_container_width=True)
+            if submit:
+                if u == "admin" and s == "123456":
+                    st.session_state.logado = True
+                    st.query_params["logged"] = "true" # Salva na URL para o F5
+                    st.rerun()
+                else:
+                    st.error("Dados incorretos.")
 else:
-    # --- INTERFACE PRINCIPAL ---
+    # --- SIDEBAR ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
         lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
-        idx_atual = lista_tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in lista_tipos else 0
-        tipo_selecionado = st.selectbox("Selecione o Tipo", lista_tipos, index=idx_atual, key=f"t_{st.session_state.campo_key}")
         
-        tipos_sem_prazo = ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
-        if tipo_selecionado not in tipos_sem_prazo:
-            data_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}")
+        tipo_selecionado = st.selectbox("Tipo", lista_tipos, key=f"t_{st.session_state.campo_key}")
+        
+        if tipo_selecionado not in ["INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]:
+            data_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY")
         else:
             data_venc = datetime.now().date()
             
-        assunto_input = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
-        desc_input = st.text_area("Descrição", value=st.session_state.val_desc, key=f"de_{st.session_state.campo_key}", height=250)
+        assunto_input = st.text_input("Assunto", value=st.session_state.val_assunto)
+        desc_input = st.text_area("Descrição", value=st.session_state.val_desc, height=200)
         
         if st.button("✅ Salvar", use_container_width=True):
             if not tipo_selecionado or not assunto_input:
                 st.error("Preencha Tipo e Assunto!")
             else:
                 with engine.connect() as conn:
-                    params = {"t": tipo_selecionado, "p": str(data_venc), "a": str(assunto_input), "de": str(desc_input)}
+                    p = {"t": tipo_selecionado, "p": str(data_venc), "a": assunto_input, "de": desc_input}
                     if st.session_state.editando_id:
-                        params["i"] = st.session_state.editando_id
-                        conn.execute(text("UPDATE tarefas SET tipo=:t, prazo=:p, assunto=:a, descricao=:de WHERE id=:i"), params)
+                        p["i"] = st.session_state.editando_id
+                        conn.execute(text("UPDATE tarefas SET tipo=:t, prazo=:p, assunto=:a, descricao=:de WHERE id=:i"), p)
                     else:
-                        conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), params)
+                        conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), p)
                     conn.commit()
                 st.success("Salvo!")
                 limpar_tudo()
@@ -129,8 +130,13 @@ else:
         if st.button("🧹 Limpar", use_container_width=True):
             limpar_tudo()
             st.rerun()
+            
+        if st.button("🚪 Sair", use_container_width=True):
+            st.session_state.logado = False
+            st.query_params.clear()
+            st.rerun()
 
-    # ABAS
+    # --- ABAS ---
     t_dash, t_lem, t_com, t_info, t_cont, t_aud, t_mod, t_cal = st.tabs([
         "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
     ])
@@ -140,61 +146,99 @@ else:
     except:
         df = pd.DataFrame(columns=['id', 'tipo', 'prazo', 'assunto', 'descricao'])
 
-    # --- FUNÇÕES DE LISTAGEM (Omitidas aqui para brevidade, mantêm-se as mesmas do seu código anterior) ---
-    # [Manter funções listar() e listar_simplificado() aqui]
+    def obter_estilo(p_str):
+        try:
+            dv = datetime.strptime(str(p_str), '%Y-%m-%d').date()
+            hoje = datetime.now().date()
+            dif = (dv - hoje).days
+            if dif <= 0: return "🔴 VENCIDO"
+            elif 1 <= dif <= 2: return "🟡 PRÓXIMO"
+            else: return "🔵 FUTURO"
+        except: return "🔵 SEM DATA"
 
-    # --- ABA CALENDÁRIO (NOVA) ---
+    # Funções de listagem
+    def listar(tipo, tab):
+        with tab:
+            dff = df[df['tipo'] == tipo].sort_values(by='prazo')
+            if dff.empty: st.info(f"Vazio.")
+            else:
+                for _, r in dff.iterrows():
+                    c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
+                    dt = datetime.strptime(r['prazo'], '%Y-%m-%d')
+                    c1.write(obter_estilo(r['prazo']))
+                    c2.write(dt.strftime('%A'))
+                    c3.write(dt.strftime('%d/%m/%Y'))
+                    if c4.button(f"**{r['assunto']}**", key=f"b_{r['id']}", use_container_width=True):
+                        exibir_detalhes(r['assunto'], r['descricao'])
+                    if c5.button("📝", key=f"e_{r['id']}"):
+                        st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
+                        st.session_state.val_assunto, st.session_state.val_desc = r['assunto'], r['descricao']
+                        st.session_state.val_prazo = dt.date()
+                        st.rerun()
+                    if c6.button("🗑️", key=f"d_{r['id']}"):
+                        with engine.connect() as cn:
+                            cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": r['id']})
+                            cn.commit()
+                        st.rerun()
+                    st.markdown("---")
+
+    def listar_simples(tipo, tab, icone):
+        with tab:
+            dff = df[df['tipo'] == tipo].sort_values(by='assunto')
+            for _, r in dff.iterrows():
+                c1, c2, c3 = st.columns([0.85, 0.075, 0.075])
+                if c1.button(f"{icone} **{r['assunto']}**", key=f"s_{r['id']}", use_container_width=True):
+                    exibir_detalhes(r['assunto'], r['descricao'])
+                if c2.button("📝", key=f"es_{r['id']}"):
+                    st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
+                    st.session_state.val_assunto, st.session_state.val_desc = r['assunto'], r['descricao']
+                    st.rerun()
+                if c3.button("🗑️", key=f"ds_{r['id']}"):
+                    with engine.connect() as cn:
+                        cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": r['id']})
+                        cn.commit()
+                    st.rerun()
+                st.markdown("---")
+
+    # --- ABA CALENDÁRIO ---
     with t_cal:
-        col_m1, col_m2, col_m3 = st.columns([1, 2, 1])
-        with col_m2:
+        col_c1, col_c2, col_c3 = st.columns([1, 2, 1])
+        with col_c2:
             c1, c2, c3 = st.columns([1, 3, 1])
-            if c1.button("⬅️ Anterior"):
+            if c1.button("⬅️ Ant."):
                 st.session_state.cal_mes -= 1
-                if st.session_state.cal_mes < 1:
-                    st.session_state.cal_mes = 12
-                    st.session_state.cal_ano -= 1
+                if st.session_state.cal_mes < 1: st.session_state.cal_mes, st.session_state.cal_ano = 12, st.session_state.cal_ano - 1
                 st.rerun()
-            
-            meses_pt = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-            c2.markdown(f"<h2 style='text-align: center;'>{meses_pt[st.session_state.cal_mes]} {st.session_state.cal_ano}</h2>", unsafe_allow_html=True)
-            
-            if c3.button("Próximo ➡️"):
+            meses = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+            c2.markdown(f"<h3 style='text-align:center'>{meses[st.session_state.cal_mes]} {st.session_state.cal_ano}</h3>", unsafe_allow_html=True)
+            if c3.button("Próx. ➡️"):
                 st.session_state.cal_mes += 1
-                if st.session_state.cal_mes > 12:
-                    st.session_state.cal_mes = 1
-                    st.session_state.cal_ano += 1
+                if st.session_state.cal_mes > 12: st.session_state.cal_mes, st.session_state.cal_ano = 1, st.session_state.cal_ano + 1
                 st.rerun()
 
-        # Gerar o calendário
         cal = calendar.monthcalendar(st.session_state.cal_ano, st.session_state.cal_mes)
         br_holidays = holidays.BR()
-        
-        html_cal = '<table class="cal-table"><tr>'
-        for sem in ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]:
-            html_cal += f'<th class="cal-header">{sem}</th>'
-        html_cal += '</tr>'
-
+        html = '<table class="cal-table"><tr>'
+        for sem in ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]: html += f'<th class="cal-header">{sem}</th>'
+        html += '</tr>'
         for semana in cal:
-            html_cal += '<tr>'
+            html += '<tr>'
             for i, dia in enumerate(semana):
-                if dia == 0:
-                    html_cal += '<td class="cal-day dia-vazio"></td>'
+                if dia == 0: html += '<td class="cal-day dia-vazio"></td>'
                 else:
-                    data_atual = datetime(st.session_state.cal_ano, st.session_state.cal_mes, dia)
-                    classe = "dia-util"
-                    nome_feriado = br_holidays.get(data_atual)
-                    
-                    if i >= 5: classe = "dia-fds" # Sábado ou Domingo
-                    if nome_feriado: classe = "dia-feriado"
-                    
-                    conteudo = f"<div>{dia}</div>"
-                    if nome_feriado:
-                        conteudo += f'<div style="font-size: 10px; color: #f08c00; text-align:center; margin-top:10px;">{nome_feriado}</div>'
-                    
-                    html_cal += f'<td class="cal-day {classe}">{conteudo}</td>'
-            html_cal += '</tr>'
-        html_cal += '</table>'
-        st.markdown(html_cal, unsafe_allow_html=True)
+                    data_at = datetime(st.session_state.cal_ano, st.session_state.cal_mes, dia)
+                    classe = "dia-fds" if i >= 5 else "dia-util"
+                    feriado = br_holidays.get(data_at)
+                    if feriado: classe = "dia-feriado"
+                    txt_f = f'<div style="font-size:10px; color:#f08c00">{feriado}</div>' if feriado else ""
+                    html += f'<td class="cal-day {classe}"><b>{dia}</b>{txt_f}</td>'
+            html += '</tr>'
+        st.markdown(html + '</table>', unsafe_allow_html=True)
 
-    # Executar listagens das outras abas
-    # [Chamar listar(...) para as outras abas conforme o código anterior]
+    # Chamadas das abas
+    listar("LEMBRETE", t_lem)
+    listar("COMPROMISSO", t_com)
+    listar_simples("INFORMAÇÃO", t_info, "📌")
+    listar_simples("CONTATO", t_cont, "📞")
+    listar_simples("AUDIÊNCIA", t_aud, "⚖️")
+    listar_simples("MODELO", t_mod, "📄")
