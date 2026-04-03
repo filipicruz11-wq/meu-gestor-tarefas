@@ -32,7 +32,7 @@ inicializar_db()
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {assunto}")
     if descricao:
-        # Forçamos uma div com classe específica para garantir o estilo
+        # Adicionamos um parágrafo vazio antes para garantir que a 1ª linha não cole no título
         st.markdown(f'<div class="caixa-texto-cejusc"><pre>{descricao}</pre></div>', unsafe_allow_html=True)
     else:
         st.write("Sem descrição disponível.")
@@ -59,8 +59,7 @@ def limpar_tudo():
     st.session_state.val_desc = ""
     st.session_state.campo_key = f"limpar_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS (VERSÃO ANTI-CACHE COM ID DINÂMICO) ---
-# O t={int(time.time())} gera um número novo toda vez que o app inicia, forçando o navegador a atualizar
+# --- ESTILIZAÇÃO CSS (CORREÇÃO DE ESPAÇAMENTO DA 1ª LINHA) ---
 st.markdown(f"""
     <style data-cache-breaker="{int(time.time())}">
     .stTextInput input, .stTextArea textarea, .stDateInput input, .stSelectbox div[data-baseweb="select"] {{
@@ -73,9 +72,14 @@ st.markdown(f"""
     .stButton button {{ text-align: left !important; padding-left: 0px !important; }}
     
     /* ESTILO REFORÇADO PARA A DESCRIÇÃO */
+    .caixa-texto-cejusc {{
+        margin-top: 20px !important; /* Força espaço após o título */
+        display: block !important;
+    }}
+    
     .caixa-texto-cejusc pre {{
         font-family: inherit !important;
-        white-space: pre-wrap !important;
+        white-space: pre-wrap !important; /* Mantém quebras de linha */
         word-wrap: break-word !important;
         background-color: transparent !important;
         border: none !important;
@@ -83,6 +87,7 @@ st.markdown(f"""
         margin: 0 !important;
         color: inherit !important;
         font-size: 16px !important;
+        line-height: 1.5 !important; /* Melhora o espaçamento entre linhas */
     }}
     </style>
     """, unsafe_allow_html=True)
