@@ -40,7 +40,7 @@ def inicializar_db():
 
 inicializar_db()
 
-# --- FUNÇÕES PARA ABA "EXTRAIR DIAS" (RTF) ---
+# --- FUNÇÕES AUXILIARES (RTF e PDF) ---
 def rtf_unicode(texto):
     resultado = ""
     for char in texto:
@@ -75,7 +75,6 @@ def gerar_rtf_buffer(texto):
             else:
                 mediadores_dias[mediador].append(dia)
                 mediadores_horarios[mediador].append(info_horario)
-
     mediadores_ordenados = sorted(mediadores_horarios.keys(), key=lambda n: (1 if "CANCEL" in n.upper() else 0, n.upper()))
     output = io.StringIO()
     output.write(r"{\rtf1\ansi\deff0{\fonttbl{\f0 Bookman Old Style;}}\fs24\f0 ")
@@ -94,7 +93,6 @@ def gerar_rtf_buffer(texto):
     output.write("}")
     return output.getvalue()
 
-# --- FUNÇÕES PARA ABA "GERAR PDF" ---
 def get_dia_semana(data_str):
     try:
         dias = ["Segunda-Feira", "Terça-Feira", "Quarta-Feira", "Quinta-Feira", "Sexta-Feira", "Sábado", "Domingo"]
@@ -152,16 +150,19 @@ def limpar_tudo():
     st.session_state.val_prazo = datetime.now().date()
     st.session_state.campo_key = f"k_{datetime.now().timestamp()}"
 
-# --- ESTILIZAÇÃO CSS ---
+# --- ESTILIZAÇÃO CSS (CORREÇÃO DE ESPAÇAMENTO) ---
 st.markdown("""<style>
-    .caixa-texto-fix { margin-top: 10px !important; font-family: sans-serif !important; font-size: 14px !important; line-height: 1.6 !important; color: #1E1E1E !important; }
+    .stMainBlockContainer { padding-top: 2rem !important; }
+    div[data-testid="stVerticalBlock"] > div { margin-top: -0.5rem !important; margin-bottom: -0.5rem !important; }
+    .caixa-texto-fix { margin-top: 5px !important; font-family: sans-serif !important; font-size: 14px !important; line-height: 1.4 !important; color: #1E1E1E !important; }
     .cal-table { width: 100%; border-collapse: collapse; table-layout: fixed; background-color: #f8f9fa; border: 2px solid #adb5bd; }
-    .cal-header { background-color: #e9ecef; font-weight: bold; text-align: center; padding: 8px; border: 1px solid #adb5bd; }
-    .cal-day { height: 85px; text-align: right; vertical-align: top; padding: 5px; border: 1px solid #adb5bd; }
+    .cal-header { background-color: #e9ecef; font-weight: bold; text-align: center; padding: 5px; border: 1px solid #adb5bd; }
+    .cal-day { height: 75px; text-align: right; vertical-align: top; padding: 5px; border: 1px solid #adb5bd; }
     .dia-util { background-color: #ffffff; }
     .dia-fds { background-color: #fff5f5; color: #e03131; }
     .dia-feriado { background-color: #fff9db; color: #f08c00; font-weight: bold; }
     .dia-vazio { background-color: #f1f3f5; }
+    hr { margin: 0.5rem 0px !important; }
     </style>""", unsafe_allow_html=True)
 
 if not st.session_state.logado:
@@ -175,17 +176,20 @@ if not st.session_state.logado:
                 st.rerun()
             else: st.error("Dados incorretos.")
 else:
-    # --- SIDEBAR ---
+    # --- SIDEBAR (NOVO CADASTRO) ---
     with st.sidebar:
         st.header("📝 " + ("Editar" if st.session_state.editando_id else "Novo"))
         tipos = ["", "TAREFA", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
         try: idx = tipos.index(st.session_state.val_tipo)
         except: idx = 0
         t_sel = st.selectbox("Tipo", tipos, index=idx, key=f"s_{st.session_state.campo_key}")
-        dt_v = st.date_input("Vencimento", value=st.session_state.val_prazo, key=f"d_{st.session_state.campo_key}") if t_sel in ["TAREFA", "LEMBRETE", "COMPROMISSO", ""] else datetime.now().date()
+        
+        # Correção do Formato de Data na Sidebar
+        dt_v = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"d_{st.session_state.campo_key}") if t_sel in ["TAREFA", "LEMBRETE", "COMPROMISSO", ""] else datetime.now().date()
+        
         ass = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
-        des = st.text_area("Descrição", value=st.session_state.val_desc, height=250, key=f"tx_{st.session_state.campo_key}")
-        if st.button("✅ Salvar"):
+        des = st.text_area("Descrição", value=st.session_state.val_desc, height=200, key=f"tx_{st.session_state.campo_key}")
+        if st.button("✅ Salvar", use_container_width=True):
             if not t_sel or not ass: st.error("Preencha Tipo e Assunto!")
             else:
                 with engine.connect() as conn:
@@ -196,8 +200,8 @@ else:
                     else: conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), p)
                     conn.commit()
                 st.success("Salvo!"); limpar_tudo(); st.rerun()
-        if st.button("🧹 Limpar"): limpar_tudo(); st.rerun()
-        if st.button("🚪 Sair"): st.session_state.logado = False; st.query_params.clear(); st.rerun()
+        if st.button("🧹 Limpar", use_container_width=True): limpar_tudo(); st.rerun()
+        if st.button("🚪 Sair", use_container_width=True): st.session_state.logado = False; st.query_params.clear(); st.rerun()
 
     # --- ABAS ---
     tabs = st.tabs(["🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO", "📄 EXTRAIR DIAS", "📕 GERAR PDF"])
@@ -216,7 +220,7 @@ else:
             else: return "blue", "🔵 FUTURO"
         except: return "blue", "🔵 SEM DATA"
 
-    # --- DASHBOARD ---
+    # --- ABA INÍCIO (CORREÇÃO DOS GRÁFICOS) ---
     with t_dash:
         st.subheader("Visão Geral")
         cols = st.columns(3)
@@ -227,13 +231,13 @@ else:
                 cor, _ = obter_estilo(p)
                 cts[cor] += 1
             fig = go.Figure(go.Bar(x=[cts["blue"], cts["gold"], cts["red"]], y=["3+ dias", "2 dias", "Vencido"], orientation='h', marker_color=["blue", "gold", "red"]))
-            fig.update_layout(title=f"{nome}S", height=230, margin=dict(l=10, r=50, t=40, b=10), xaxis=dict(visible=False))
+            fig.update_layout(title=f"{nome}S", height=200, margin=dict(l=10, r=50, t=40, b=10), xaxis=dict(visible=False))
             cols[i].plotly_chart(fig, use_container_width=True)
 
     # --- EXTRAIR DIAS ---
     with t_ext:
         st.subheader("Gerador de Lista de Dias (RTF)")
-        p_in = st.text_area("Cole a pauta para RTF:", height=250)
+        p_in = st.text_area("Cole a pauta para RTF:", height=200)
         if st.button("🚀 Gerar RTF"):
             if p_in.strip():
                 st.download_button("⬇️ Baixar DIAS.rtf", gerar_rtf_buffer(p_in), "DIAS.rtf", "application/rtf")
@@ -242,7 +246,7 @@ else:
     # --- GERAR PDF ---
     with t_pdf:
         st.subheader("Gerador de PDFs por Mediador")
-        p_pdf = st.text_area("Cole a pauta para PDF:", height=250)
+        p_pdf = st.text_area("Cole a pauta para PDF:", height=200)
         if st.button("📕 Gerar Todos os PDFs"):
             if not p_pdf.strip(): st.error("Cole os dados primeiro.")
             else:
@@ -256,20 +260,17 @@ else:
                         elif "AUDIÊNCIA CANCELADA" in resto.upper(): m_ch = "AUDIÊNCIA CANCELADA"; miolo = resto.upper().split("AUDIÊNCIA CANCELADA")[0].strip()
                         elif "SIM" in resto: p_sim = resto.rsplit("SIM", 1); miolo, m_ch = p_sim[0].strip(), p_sim[1].strip()
                         else: p_res = resto.rsplit(maxsplit=1); miolo, m_ch = (p_res[0], p_res[1]) if len(p_res)>1 else ("", "OUTROS")
-                        
-                        p_mio = miolo.split(maxsplit=1)
                         sen, var = ("", miolo)
+                        p_mio = miolo.split(maxsplit=1)
                         if p_mio and ("ª" not in p_mio[0] and "º" not in p_mio[0]): sen, var = p_mio[0], (p_mio[1] if len(p_mio)>1 else "")
                         dados_med[m_ch].append([get_dia_semana(dt), dt, hr, proc, sen, var, m_ch])
-                
                 if dados_med:
                     z_buf = io.BytesIO()
                     with zipfile.ZipFile(z_buf, "a", zipfile.ZIP_DEFLATED) as zf:
                         for m, rs in dados_med.items(): zf.writestr(f"{m.replace(' ','_')}.pdf", gerar_pdf_bytes(m, rs))
-                    st.success(f"{len(dados_med)} mediadores identificados.")
                     st.download_button("📥 BAIXAR PDFs (.ZIP)", z_buf.getvalue(), "pautas_cejusc.zip", "application/zip")
 
-    # --- LISTAGENS ---
+    # --- LISTAGENS (CORREÇÃO DE ESPAÇAMENTO NAS LINHAS) ---
     def listar(tipo, tab):
         with tab:
             dff = df[df['tipo'] == tipo].sort_values(by='prazo')
