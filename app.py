@@ -10,6 +10,13 @@ import time
 # Configuração da página
 st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide")
 
+# --- BLOQUEIO DE TRADUÇÃO AUTOMÁTICA (Resolve "Marchar" e "Poderia") ---
+st.markdown("""
+    <head>
+        <meta name="google" content="notranslate">
+    </head>
+    """, unsafe_allow_html=True)
+
 # --- CONEXÃO COM BANCO ---
 DB_URL = "postgresql://admin:m9QWSOMx5wPsxYHfP7rFMemMwfB64cOY@dpg-d776jalm5p6s739g3h3g-a/agenda_x7my"
 engine = create_engine(DB_URL)
@@ -32,7 +39,11 @@ def exibir_detalhes(assunto, descricao):
     if descricao:
         descricao_limpa = descricao.replace("<span>", "").replace("</span>", "")
         descricao_formatada = descricao_limpa.replace("\n", "<br>")
-        st.markdown(f'<div class="caixa-texto-fix">{descricao_formatada}</div>', unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class="caixa-texto-fix" style="white-space: pre-wrap; word-wrap: break-word;">
+                {descricao_formatada}
+            </div>
+        """, unsafe_allow_html=True)
     else:
         st.write("Sem descrição disponível.")
     st.markdown("<br>", unsafe_allow_html=True)
@@ -82,7 +93,7 @@ def limpar_tudo():
 # --- ESTILIZAÇÃO CSS ---
 st.markdown(f"""
     <style>
-    .caixa-texto-fix {{ margin-top: 10px !important; font-family: sans-serif !important; font-size: 14px !important; line-height: 1.5 !important; color: #1E1E1E !important; }}
+    .caixa-texto-fix {{ margin-top: 10px !important; font-family: sans-serif !important; font-size: 14px !important; line-height: 1.6 !important; color: #1E1E1E !important; }}
     .cal-table {{ width: 100%; border-collapse: collapse; font-family: sans-serif; table-layout: fixed; background-color: #f8f9fa; border: 2px solid #adb5bd; }}
     .cal-header {{ background-color: #e9ecef; font-weight: bold; text-align: center; padding: 8px; border: 1px solid #adb5bd; font-size: 14px; }}
     .cal-day {{ height: 85px; text-align: right; vertical-align: top; padding: 5px; border: 1px solid #adb5bd; font-size: 14px; }}
@@ -110,7 +121,6 @@ else:
     # --- SIDEBAR ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
-        # 02) Incluída TAREFA na lista de seleção
         lista_tipos = ["", "TAREFA", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
         
         try: idx_tipo = lista_tipos.index(st.session_state.val_tipo)
@@ -118,13 +128,12 @@ else:
 
         tipo_sel = st.selectbox("Tipo", lista_tipos, index=idx_tipo, key=f"sel_{st.session_state.campo_key}")
         
-        # Tarefa agora também habilita o campo de data de vencimento
         if tipo_sel in ["TAREFA", "LEMBRETE", "COMPROMISSO", ""]:
             dt_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"dat_{st.session_state.campo_key}")
         else: dt_venc = datetime.now().date()
             
         ass_in = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"ass_{st.session_state.campo_key}")
-        des_in = st.text_area("Descrição", value=st.session_state.val_desc, height=150, key=f"des_{st.session_state.campo_key}")
+        des_in = st.text_area("Descrição", value=st.session_state.val_desc, height=250, key=f"des_{st.session_state.campo_key}")
         
         if st.button("✅ Salvar", use_container_width=True):
             if not tipo_sel or not ass_in: st.error("Preencha Tipo e Assunto!")
@@ -151,7 +160,6 @@ else:
             st.rerun()
 
     # --- ABAS ---
-    # 04) Abas reorganizadas na ordem solicitada
     t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal = st.tabs([
         "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
     ])
@@ -164,7 +172,6 @@ else:
             dv = datetime.strptime(str(p_str), '%Y-%m-%d').date()
             hoje = datetime.now().date()
             dif = (dv - hoje).days
-            # 01) CORREÇÃO: "VENCIDO" com C
             if dif <= 0: return "red", "🔴 VENCIDO"
             elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
             else: return "blue", "🔵 FUTURO"
@@ -173,7 +180,6 @@ else:
     # --- ABA INÍCIO (DASHBOARD) ---
     with t_dash:
         st.subheader("Visão Geral")
-        # 03) Gráfico para Tarefa incluído (agora são 3 colunas)
         c_t, c_c, c_l = st.columns(3)
         colunas_grid = [c_t, c_c, c_l]
         
@@ -272,7 +278,7 @@ else:
             html += '</tr>'
         st.markdown(html + '</table>', unsafe_allow_html=True)
 
-    # Execução das listagens (na nova ordem solicitada)
+    # Execução das listagens
     listar("TAREFA", t_tar)
     listar("COMPROMISSO", t_com)
     listar("LEMBRETE", t_lem)
