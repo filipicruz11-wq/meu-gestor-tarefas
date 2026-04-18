@@ -6,11 +6,14 @@ from sqlalchemy import create_engine, text
 import calendar
 import holidays
 import time
+import re
+import io
+from collections import defaultdict
 
 # Configuração da página
 st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide")
 
-# --- BLOQUEIO DE TRADUÇÃO AUTOMÁTICA (Resolve "Marchar" e "Poderia") ---
+# --- BLOQUEIO DE TRADUÇÃO AUTOMÁTICA ---
 st.markdown("""
     <head>
         <meta name="google" content="notranslate">
@@ -31,6 +34,83 @@ def inicializar_db():
         conn.commit()
 
 inicializar_db()
+
+# --- FUNÇÕES AUXILIARES DO GERADOR RTF (EXTRAIR DIAS) ---
+def rtf_unicode(texto):
+    resultado = ""
+    for char in texto:
+        code = ord(char)
+        if code > 127:
+            resultado += f"\\u{code}?"
+        else:
+            resultado += char
+    return resultado
+
+def gerar_rtf_buffer(texto):
+    mediadores_dias = defaultdict(list)
+    mediadores_horarios = defaultdict(list)
+
+    linhas = texto.split("\n")
+    for linha in linhas:
+        if not linha.strip(): continue
+        colunas = linha.split("\t")
+        if len(colunas) < 6: continue
+
+        data_completa = colunas[0].strip()   
+        horario = colunas[1].strip()        
+        status_proc = colunas[2].upper() if len(colunas) > 2 else ""
+        senha_proc = colunas[3].upper() if len(colunas) > 3 else ""
+        mediador = colunas[-1].strip()
+
+        if not mediador: continue
+
+        esta_cancelado = "CANCEL" in status_proc or "CANCEL" in senha_proc
+        match = re.match(r"(\d{2})/\d{2}/\d{4}", data_completa)
+        
+        if match:
+            dia = match.group(1)
+            info_horario = f"{data_completa} às {horario}"
+            if esta_cancelado:
+                mediadores_dias["AUDIÊNCIA CANCELADA"].append(dia)
+                texto_cancelado = f"{info_horario} - AUDIÊNCIA CANCELADA"
+                mediadores_horarios[mediador].append(texto_cancelado)
+                mediadores_horarios["AUDIÊNCIA CANCELADA"].append(texto_cancelado)
+            else:
+                mediadores_dias[mediador].append(dia)
+                mediadores_horarios[mediador].append(info_horario)
+
+    def custom_sort(nome):
+        n = nome.upper()
+        if "AUDIÊNCIA CANCELADA" in n: return (1, n)
+        if "SEM DISPONIBILIDADE" in n: return (2, n)
+        return (0, n)
+
+    mediadores_ordenados = sorted(mediadores_horarios.keys(), key=custom_sort)
+    
+    output = io.StringIO()
+    output.write(r"{\rtf1\ansi\deff0{\fonttbl{\f0 Bookman Old Style;}}\fs24\f0 ")
+    output.write(rtf_unicode(r"{\b\fs28 LISTA DE DIAS}\par\par "))
+    
+    for med in mediadores_ordenados:
+        dias_lista = sorted(mediadores_dias[med], key=lambda x: int(x) if x.isdigit() else 0)
+        nome_med = rtf_unicode(med + ": ")
+        if not dias_lista:
+            output.write(nome_med + r"\par ")
+        else:
+            dias_str = rtf_unicode(", ".join(dias_lista) + ".")
+            output.write(nome_med + r"\b " + dias_str + r"\b0\par ")
+
+    output.write(r"\page ")
+    output.write(rtf_unicode(r"{\b\fs28 DETALHAMENTO DE HORÁRIOS}\par\par "))
+    
+    for med in mediadores_ordenados:
+        output.write(r"\b " + rtf_unicode(med + ":") + r"\b0\par ")
+        for info in mediadores_horarios[med]:
+            output.write(rtf_unicode("  - " + info) + r"\par ")
+        output.write(r"\par ")
+
+    output.write("}")
+    return output.getvalue()
 
 # --- CAIXA DE DIÁLOGO: DETALHES ---
 @st.dialog("Detalhes da Atividade", width="large")
@@ -160,8 +240,8 @@ else:
             st.rerun()
 
     # --- ABAS ---
-    t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal = st.tabs([
-        "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
+    t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal, t_ext = st.tabs([
+        "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO", "📄 EXTRAIR DIAS"
     ])
 
     try: df = pd.read_sql("SELECT * FROM tarefas", engine)
@@ -177,19 +257,17 @@ else:
             else: return "blue", "🔵 FUTURO"
         except: return "blue", "🔵 SEM DATA"
 
-    # --- ABA INÍCIO (DASHBOARD) ---
+    # --- ABA INÍCIO ---
     with t_dash:
         st.subheader("Visão Geral")
         c_t, c_c, c_l = st.columns(3)
         colunas_grid = [c_t, c_c, c_l]
-        
         for i, nome in enumerate(["TAREFA", "COMPROMISSO", "LEMBRETE"]):
             dff = df[df['tipo'] == nome]
             cts = {"red": 0, "gold": 0, "blue": 0}
             for p in dff['prazo'].dropna():
                 cor, _ = obter_estilo(p)
                 cts[cor] += 1
-            
             fig = go.Figure(go.Bar(
                 x=[cts["blue"], cts["gold"], cts["red"]],
                 y=["3+ dias", "2 dias", "Vencido"],
@@ -199,6 +277,29 @@ else:
             ))
             fig.update_layout(title=f"{nome}S", height=230, margin=dict(l=10, r=50, t=40, b=10), xaxis=dict(visible=False))
             colunas_grid[i].plotly_chart(fig, use_container_width=True)
+
+    # --- ABA EXTRAIR DIAS (GERADOR RTF) ---
+    with t_ext:
+        st.subheader("Gerador de Lista de Dias (RTF)")
+        st.info("Cole abaixo os dados da pauta (copiados da planilha) e clique em gerar.")
+        pauta_input = st.text_area("Dados da Pauta", height=300, placeholder="Cole as colunas aqui...")
+        
+        if st.button("🚀 Processar e Gerar RTF", use_container_width=True):
+            if not pauta_input.strip():
+                st.error("Por favor, cole os dados antes de processar.")
+            else:
+                try:
+                    rtf_content = gerar_rtf_buffer(pauta_input)
+                    st.success("Arquivo RTF preparado com sucesso!")
+                    st.download_button(
+                        label="⬇️ Baixar Arquivo DIAS.rtf",
+                        data=rtf_content,
+                        file_name="DIAS.rtf",
+                        mime="application/rtf",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"Erro ao processar: {e}")
 
     # --- FUNÇÕES DE LISTAGEM ---
     def listar(tipo, tab):
@@ -212,13 +313,11 @@ else:
                 c2.write(dt.strftime('%d/%m/%Y'))
                 if c4.button(f"**{r['assunto']}**", key=f"b_{r['id']}", use_container_width=True):
                     exibir_detalhes(r['assunto'], r['descricao'])
-                
                 if c5.button("📝", key=f"e_{r['id']}"):
                     st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
                     st.session_state.val_assunto, st.session_state.val_desc, st.session_state.val_prazo = r['assunto'], r['descricao'], dt.date()
                     st.session_state.campo_key = f"edit_{r['id']}"
                     st.rerun()
-                
                 if c6.button("🗑️", key=f"d_{r['id']}"):
                     confirmar_exclusao(r['id'], r['assunto'])
                 st.markdown("---")
@@ -230,13 +329,11 @@ else:
                 c1, c2, c3 = st.columns([0.85, 0.075, 0.075])
                 if c1.button(f"{icone} **{r['assunto']}**", key=f"s_{r['id']}", use_container_width=True):
                     exibir_detalhes(r['assunto'], r['descricao'])
-                
                 if c2.button("📝", key=f"es_{r['id']}"):
                     st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
                     st.session_state.val_assunto, st.session_state.val_desc = r['assunto'], r['descricao']
                     st.session_state.campo_key = f"edit_s_{r['id']}"
                     st.rerun()
-                    
                 if c3.button("🗑️", key=f"ds_{r['id']}"):
                     confirmar_exclusao(r['id'], r['assunto'])
                 st.markdown("---")
@@ -278,7 +375,7 @@ else:
             html += '</tr>'
         st.markdown(html + '</table>', unsafe_allow_html=True)
 
-    # Execução das listagens
+    # Chamada das funções de listagem
     listar("TAREFA", t_tar)
     listar("COMPROMISSO", t_com)
     listar("LEMBRETE", t_lem)
