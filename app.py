@@ -17,7 +17,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
+# --- CONFIGURAÇÃO DA PÁGINA (ÚNICA) ---
 st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide")
 
 # --- BLOQUEIO DE TRADUÇÃO AUTOMÁTICA ---
@@ -42,7 +42,29 @@ def inicializar_db():
 
 inicializar_db()
 
-# --- FUNÇÕES AUXILIARES (GERADOR PDF) ---
+# --- ESTILIZAÇÃO CSS (SUA CONFIGURAÇÃO ORIGINAL) ---
+st.markdown(f"""
+    <style>
+    .caixa-texto-fix {{ margin-top: 10px !important; font-family: sans-serif !important; font-size: 14px !important; line-height: 1.6 !important; color: #1E1E1E !important; }}
+    .cal-table {{ width: 100%; border-collapse: collapse; font-family: sans-serif; table-layout: fixed; background-color: #f8f9fa; border: 2px solid #adb5bd; }}
+    .cal-header {{ background-color: #e9ecef; font-weight: bold; text-align: center; padding: 8px; border: 1px solid #adb5bd; font-size: 14px; }}
+    .cal-day {{ height: 85px; text-align: right; vertical-align: top; padding: 5px; border: 1px solid #adb5bd; font-size: 14px; }}
+    .dia-util {{ background-color: #ffffff; }}
+    .dia-fds {{ background-color: #fff5f5; color: #e03131; }}
+    .dia-feriado {{ background-color: #fff9db; color: #f08c00; font-weight: bold; }}
+    .dia-vazio {{ background-color: #f1f3f5; border: 1px solid #dee2e6; }}
+    hr {{ margin: 4px 0px !important; }}
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- FUNÇÕES AUXILIARES (RTF & PDF) ---
+def rtf_unicode(texto):
+    resultado = ""
+    for char in texto:
+        code = ord(char)
+        resultado += f"\\u{code}?" if code > 127 else char
+    return resultado
+
 def get_dia_semana(data_str):
     try:
         dias = ["Segunda-Feira", "Terça-Feira", "Quarta-Feira", "Quinta-Feira", "Sexta-Feira", "Sábado", "Domingo"]
@@ -54,7 +76,7 @@ def gerar_pdf_bytes(mediador, registros):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), topMargin=20, leftMargin=30, rightMargin=30)
     styles = getSampleStyleSheet()
-    elementos = [Paragraph(f"<b>{mediador}</b>", styles['Title']), Spacer(1, 15)]
+    elementos = [Paragraph(mediador, styles['Title']), Spacer(1, 15)]
     headers = ["SEMANA", "DATA", "HORA", "PROCESSO", "SENHA", "VARA", "MEDIADOR"]
     t = Table([headers] + registros, colWidths=[85, 65, 45, 110, 75, 100, 220])
     t.setStyle(TableStyle([
@@ -70,52 +92,28 @@ def gerar_pdf_bytes(mediador, registros):
     doc.build(elementos)
     return buffer.getvalue()
 
-# --- FUNÇÕES AUXILIARES (GERADOR RTF) ---
-def rtf_unicode(texto):
-    res = ""
-    for char in texto:
-        code = ord(char)
-        res += f"\\u{code}?" if code > 127 else char
-    return res
+# --- DIÁLOGOS E LÓGICA DE ESTADO ---
+@st.dialog("Detalhes da Atividade", width="large")
+def exibir_detalhes(assunto, descricao):
+    st.markdown(f"### {assunto}")
+    if descricao:
+        desc_limpa = descricao.replace("<span>", "").replace("</span>", "").replace("\n", "<br>")
+        st.markdown(f'<div class="caixa-texto-fix" style="white-space: pre-wrap;">{desc_limpa}</div>', unsafe_allow_html=True)
+    else: st.write("Sem descrição.")
+    if st.button("Fechar", use_container_width=True): st.rerun()
 
-def gerar_rtf_buffer(texto):
-    mediadores_dias = defaultdict(list)
-    mediadores_horarios = defaultdict(list)
-    linhas = texto.split("\n")
-    for linha in linhas:
-        if not linha.strip(): continue
-        colunas = linha.split("\t")
-        if len(colunas) < 6: continue
-        data_c, hora, status, senha, med = colunas[0].strip(), colunas[1].strip(), colunas[2].upper(), colunas[3].upper(), colunas[-1].strip()
-        if not med: continue
-        canc = "CANCEL" in status or "CANCEL" in senha
-        match = re.match(r"(\d{2})/\d{2}/\d{4}", data_c)
-        if match:
-            dia = match.group(1)
-            info = f"{data_c} às {hora}"
-            if canc:
-                mediadores_dias["AUDIÊNCIA CANCELADA"].append(dia)
-                mediadores_horarios[med].append(f"{info} - CANCELADA")
-                mediadores_horarios["AUDIÊNCIA CANCELADA"].append(f"{info} - CANCELADA")
-            else:
-                mediadores_dias[med].append(dia)
-                mediadores_horarios[med].append(info)
-    
-    output = io.StringIO()
-    output.write(r"{\rtf1\ansi\deff0{\fonttbl{\f0 Bookman Old Style;}}\fs24\f0 ")
-    output.write(rtf_unicode(r"{\b\fs28 LISTA DE DIAS}\par\par "))
-    for m in sorted(mediadores_horarios.keys()):
-        dias = sorted(mediadores_dias[m], key=lambda x: int(x) if x.isdigit() else 0)
-        output.write(rtf_unicode(m + ": ") + (r"\b " + rtf_unicode(", ".join(dias) + ".") + r"\b0\par " if dias else r"\par "))
-    output.write(r"\page " + rtf_unicode(r"{\b\fs28 DETALHAMENTO DE HORÁRIOS}\par\par "))
-    for m in sorted(mediadores_horarios.keys()):
-        output.write(r"\b " + rtf_unicode(m + ":") + r"\b0\par ")
-        for h in mediadores_horarios[m]: output.write(rtf_unicode("  - " + h) + r"\par ")
-        output.write(r"\par ")
-    output.write("}")
-    return output.getvalue()
+@st.dialog("Confirmar Exclusão")
+def confirmar_exclusao(id_item, assunto):
+    st.warning(f"Deseja excluir: **{assunto}**?")
+    c1, c2 = st.columns(2)
+    if c1.button("✅ Sim", use_container_width=True, type="primary"):
+        with engine.connect() as cn:
+            cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": id_item})
+            cn.commit()
+        st.rerun()
+    if c2.button("❌ Não", use_container_width=True): st.rerun()
 
-# --- ESTADOS E LOGIN ---
+# --- ESTADOS DO SISTEMA ---
 if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
@@ -137,131 +135,176 @@ def limpar_tudo():
 def obter_estilo(p_str):
     try:
         dv = datetime.strptime(str(p_str), '%Y-%m-%d').date()
-        hoje = datetime.now().date()
-        dif = (dv - hoje).days
+        dif = (dv - datetime.now().date()).days
         if dif <= 0: return "red", "🔴 VENCIDO"
         elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
         else: return "blue", "🔵 FUTURO"
     except: return "blue", "🔵 SEM DATA"
 
-@st.dialog("Detalhes")
-def exibir_detalhes(assunto, descricao):
-    st.markdown(f"### {assunto}")
-    st.write(descricao if descricao else "Sem descrição.")
-    if st.button("Fechar"): st.rerun()
-
-@st.dialog("Excluir")
-def confirmar_exclusao(id_item, assunto):
-    st.warning(f"Excluir: {assunto}?")
-    if st.button("Sim, excluir", type="primary"):
-        with engine.connect() as cn:
-            cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": id_item})
-            cn.commit()
-        st.rerun()
-
-# --- CSS ---
-st.markdown("<style>.cal-table { width: 100%; border-collapse: collapse; } .cal-day { height: 80px; border: 1px solid #ccc; padding: 5px; text-align: right; vertical-align: top; }</style>", unsafe_allow_html=True)
-
-# --- INTERFACE ---
+# --- LOGIN ---
 if not st.session_state.logado:
-    with st.form("login"):
-        u = st.text_input("Usuário")
-        s = st.text_input("Senha", type="password")
+    st.title("🔐 Acesso Restrito")
+    with st.form("login_form"):
+        u, s = st.text_input("Usuário"), st.text_input("Senha", type="password")
         if st.form_submit_button("ENTRAR"):
             if u == "admin" and s == "123456":
                 st.session_state.logado = True
                 st.rerun()
+            else: st.error("Incorreto")
 else:
-    # SIDEBAR
+    # --- SIDEBAR ---
     with st.sidebar:
-        st.header("📝 Cadastro")
-        tipo_sel = st.selectbox("Tipo", ["", "TAREFA", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"], key=f"s_{st.session_state.campo_key}")
-        dt_venc = st.date_input("Prazo", value=st.session_state.val_prazo, key=f"d_{st.session_state.campo_key}")
-        ass_in = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"a_{st.session_state.campo_key}")
-        des_in = st.text_area("Descrição", value=st.session_state.val_desc, key=f"x_{st.session_state.campo_key}")
-        if st.button("Salvar"):
-            with engine.connect() as conn:
-                p = {"t": tipo_sel, "p": str(dt_venc), "a": ass_in, "de": des_in}
-                if st.session_state.editando_id:
-                    p["i"] = st.session_state.editando_id
-                    conn.execute(text("UPDATE tarefas SET tipo=:t, prazo=:p, assunto=:a, descricao=:de WHERE id=:i"), p)
-                else:
-                    conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), p)
-                conn.commit()
-            limpar_tudo()
-            st.rerun()
-        if st.button("Sair"):
-            st.session_state.logado = False
-            st.rerun()
+        st.header("📝 " + ("Editar" if st.session_state.editando_id else "Novo"))
+        tipos = ["", "TAREFA", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
+        t_sel = st.selectbox("Tipo", tipos, index=tipos.index(st.session_state.val_tipo) if st.session_state.val_tipo in tipos else 0, key=f"sel_{st.session_state.campo_key}")
+        dt_v = st.date_input("Prazo", value=st.session_state.val_prazo, key=f"dat_{st.session_state.campo_key}")
+        ass_i = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"ass_{st.session_state.campo_key}")
+        des_i = st.text_area("Descrição", value=st.session_state.val_desc, height=200, key=f"des_{st.session_state.campo_key}")
+        
+        if st.button("✅ Salvar", use_container_width=True):
+            if t_sel and ass_i:
+                with engine.connect() as conn:
+                    p = {"t": t_sel, "p": str(dt_v), "a": ass_i, "de": des_i}
+                    if st.session_state.editando_id:
+                        p["i"] = st.session_state.editando_id
+                        conn.execute(text("UPDATE tarefas SET tipo=:t, prazo=:p, assunto=:a, descricao=:de WHERE id=:i"), p)
+                    else:
+                        conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), p)
+                    conn.commit()
+                limpar_tudo()
+                st.rerun()
 
-    # ABAS
-    abas = st.tabs(["🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFO", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO", "📄 RTF", "📑 PDF"])
+        if st.button("🧹 Limpar", use_container_width=True): limpar_tudo(); st.rerun()
+        if st.button("🚪 Sair", use_container_width=True): st.session_state.logado = False; st.rerun()
+
+    # --- ABAS ---
+    abas = st.tabs(["🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFO", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO", "📄 EXTRAIR DIAS", "📑 GERAR PDF"])
     t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal, t_ext, t_pdf = abas
 
     try: df = pd.read_sql("SELECT * FROM tarefas", engine)
     except: df = pd.DataFrame(columns=['id', 'tipo', 'prazo', 'assunto', 'descricao'])
 
-    def listar(tipo, tab_context):
-        dff = df[df['tipo'] == tipo].sort_values(by='prazo')
-        for _, r in dff.iterrows():
-            cor, txt = obter_estilo(r['prazo'])
-            c1, c2, c3, c4 = st.columns([0.2, 0.2, 0.5, 0.1])
-            c1.write(txt)
-            c2.write(r['prazo'])
-            if c3.button(f"{r['assunto']}", key=f"b{r['id']}", use_container_width=True): exibir_detalhes(r['assunto'], r['descricao'])
-            if c4.button("🗑️", key=f"d{r['id']}"): confirmar_exclusao(r['id'], r['assunto'])
-            st.divider()
-
-    # ABA INÍCIO
+    # --- ABA INÍCIO ---
     with t_dash:
-        st.subheader("Dashboard")
-        c1, c2, c3 = st.columns(3)
-        for i, (col, nome) in enumerate(zip([c1, c2, c3], ["TAREFA", "COMPROMISSO", "LEMBRETE"])):
-            qtd = len(df[df['tipo'] == nome])
-            col.metric(nome, qtd)
+        st.subheader("Visão Geral")
+        cols = st.columns(3)
+        for i, nome in enumerate(["TAREFA", "COMPROMISSO", "LEMBRETE"]):
+            dff = df[df['tipo'] == nome]
+            cts = {"red": 0, "gold": 0, "blue": 0}
+            for p in dff['prazo'].dropna():
+                cor, _ = obter_estilo(p)
+                cts[cor] += 1
+            fig = go.Figure(go.Bar(x=[cts["blue"], cts["gold"], cts["red"]], y=["3+ dias", "2 dias", "Vencido"], orientation='h', marker_color=["blue", "gold", "red"]))
+            fig.update_layout(title=f"{nome}S", height=230, margin=dict(l=10, r=50, t=40, b=10))
+            cols[i].plotly_chart(fig, use_container_width=True)
 
-    # CONTEÚDO DAS ABAS (Corrigido: agora dentro do with)
-    with t_tar: listar("TAREFA", t_tar)
-    with t_com: listar("COMPROMISSO", t_com)
-    with t_lem: listar("LEMBRETE", t_lem)
-    with t_info:
-        for _, r in df[df['tipo'] == "INFORMAÇÃO"].iterrows():
-            if st.button(f"📌 {r['assunto']}", key=f"i{r['id']}", use_container_width=True): exibir_detalhes(r['assunto'], r['descricao'])
-    with t_cont:
-        for _, r in df[df['tipo'] == "CONTATO"].iterrows():
-            if st.button(f"📞 {r['assunto']}", key=f"c{r['id']}", use_container_width=True): exibir_detalhes(r['assunto'], r['descricao'])
-    with t_aud:
-        for _, r in df[df['tipo'] == "AUDIÊNCIA"].iterrows():
-            if st.button(f"⚖️ {r['assunto']}", key=f"u{r['id']}", use_container_width=True): exibir_detalhes(r['assunto'], r['descricao'])
-    with t_mod:
-        for _, r in df[df['tipo'] == "MODELO"].iterrows():
-            if st.button(f"📄 {r['assunto']}", key=f"m{r['id']}", use_container_width=True): exibir_detalhes(r['assunto'], r['descricao'])
+    # --- FUNÇÃO DE LISTAGEM (COM SUAS COLUNAS ORIGINAIS) ---
+    def listar_com_layout_original(tipo, aba_destino):
+        with aba_destino:
+            dff = df[df['tipo'] == tipo].sort_values(by='prazo')
+            for _, r in dff.iterrows():
+                dt = datetime.strptime(r['prazo'], '%Y-%m-%d')
+                _, txt_st = obter_estilo(r['prazo'])
+                # SUAS COLUNAS ORIGINAIS: 0.15, 0.12, 0.12, 0.46, 0.075, 0.075
+                c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
+                c1.write(txt_st)
+                c2.write(dt.strftime('%d/%m/%Y'))
+                if c4.button(f"**{r['assunto']}**", key=f"b_{r['id']}", use_container_width=True):
+                    exibir_detalhes(r['assunto'], r['descricao'])
+                if c5.button("📝", key=f"e_{r['id']}"):
+                    st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
+                    st.session_state.val_assunto, st.session_state.val_desc, st.session_state.val_prazo = r['assunto'], r['descricao'], dt.date()
+                    st.session_state.campo_key = f"ed_{r['id']}"
+                    st.rerun()
+                if c6.button("🗑️", key=f"d_{r['id']}"): confirmar_exclusao(r['id'], r['assunto'])
+                st.markdown("---")
 
+    def listar_simples_original(tipo, aba_destino, icone):
+        with aba_destino:
+            dff = df[df['tipo'] == tipo].sort_values(by='assunto')
+            for _, r in dff.iterrows():
+                c1, c2, c3 = st.columns([0.85, 0.075, 0.075])
+                if c1.button(f"{icone} **{r['assunto']}**", key=f"s_{r['id']}", use_container_width=True):
+                    exibir_detalhes(r['assunto'], r['descricao'])
+                if c2.button("📝", key=f"es_{r['id']}"):
+                    st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
+                    st.session_state.val_assunto, st.session_state.val_desc = r['assunto'], r['descricao']
+                    st.session_state.campo_key = f"eds_{r['id']}"
+                    st.rerun()
+                if c3.button("🗑️", key=f"ds_{r['id']}"): confirmar_exclusao(r['id'], r['assunto'])
+                st.markdown("---")
+
+    # Chamadas das abas de conteúdo
+    listar_com_layout_original("TAREFA", t_tar)
+    listar_com_layout_original("COMPROMISSO", t_com)
+    listar_com_layout_original("LEMBRETE", t_lem)
+    listar_simples_original("INFORMAÇÃO", t_info, "📌")
+    listar_simples_original("CONTATO", t_cont, "📞")
+    listar_simples_original("AUDIÊNCIA", t_aud, "⚖️")
+    listar_simples_original("MODELO", t_mod, "📄")
+
+    # --- ABA CALENDÁRIO (SUA LÓGICA ORIGINAL) ---
     with t_cal:
-        st.write(f"Calendário: {st.session_state.cal_mes}/{st.session_state.cal_ano}")
-        # Lógica simples de navegação omitida para brevidade, mas o calendário HTML entra aqui.
+        c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
+        with c_nav2:
+            n1, n2, n3 = st.columns([1, 2, 1])
+            if n1.button("⬅️ Ant."):
+                st.session_state.cal_mes -= 1
+                if st.session_state.cal_mes < 1: st.session_state.cal_mes, st.session_state.cal_ano = 12, st.session_state.cal_ano - 1
+                st.rerun()
+            meses = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+            n2.markdown(f"<h4 style='text-align:center'>{meses[st.session_state.cal_mes]} {st.session_state.cal_ano}</h4>", unsafe_allow_html=True)
+            if n3.button("Próx. ➡️"):
+                st.session_state.cal_mes += 1
+                if st.session_state.cal_mes > 12: st.session_state.cal_mes, st.session_state.cal_ano = 1, st.session_state.cal_ano + 1
+                st.rerun()
+        
+        calendar.setfirstweekday(calendar.SUNDAY)
+        cal = calendar.monthcalendar(st.session_state.cal_ano, st.session_state.cal_mes)
+        br_hols = holidays.BR()
+        html = '<table class="cal-table"><tr>'
+        for sem in ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]: html += f'<th class="cal-header">{sem}</th>'
+        html += '</tr>'
+        for semana in cal:
+            html += '<tr>'
+            for i, dia in enumerate(semana):
+                if dia == 0: html += '<td class="cal-day dia-vazio"></td>'
+                else:
+                    dt_at = datetime(st.session_state.cal_ano, st.session_state.cal_mes, dia)
+                    cl = "dia-fds" if i==0 or i==6 else "dia-util"
+                    fer = br_hols.get(dt_at)
+                    if fer: cl = "dia-feriado"
+                    txt_f = f'<div style="font-size:9px; color:#f08c00;">{fer}</div>' if fer else ""
+                    html += f'<td class="cal-day {cl}"><b>{dia}</b>{txt_f}</td>'
+            html += '</tr>'
+        st.markdown(html + '</table>', unsafe_allow_html=True)
 
+    # --- ABA EXTRAIR DIAS (RTF) ---
     with t_ext:
-        txt_rtf = st.text_area("Pauta para RTF")
-        if st.button("Gerar RTF"):
-            st.download_button("Baixar RTF", gerar_rtf_buffer(txt_rtf), "DIAS.rtf")
+        st.subheader("Gerador de Lista de Dias (RTF)")
+        p_in = st.text_area("Dados da Pauta", height=250)
+        if st.button("🚀 Gerar RTF", use_container_width=True):
+            if p_in:
+                rtf_c = gerar_rtf_buffer(p_in)
+                st.download_button("⬇️ Baixar DIAS.rtf", rtf_c, "DIAS.rtf", "application/rtf")
 
+    # --- ABA GERAR PDF (A NOVA ABA) ---
     with t_pdf:
-        st.subheader("Gerador de PDFs Individuais")
-        pauta_pdf = st.text_area("Pauta para PDF (Texto bruto)")
-        if st.button("Gerar PDFs (ZIP)"):
-            if pauta_pdf:
-                dados_med = defaultdict(list)
-                for l in pauta_pdf.strip().split("\n"):
-                    m = re.search(r"(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2})\s+(\d{7}-\d{2}\.\d{4})\s+(.*)", l)
+        st.subheader("📄 Gerador de PDFs (ZIP)")
+        txt_pdf = st.text_area("Cole a pauta aqui:", height=250, key="txt_pdf_final")
+        if st.button("📥 GERAR PDFs", use_container_width=True):
+            if txt_pdf:
+                dados_m = defaultdict(list)
+                for linha in txt_pdf.strip().split("\n"):
+                    m = re.search(r"(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2})\s+(\d{7}-\d{2}\.\d{4})\s+(.*)", linha)
                     if m:
                         dt, hr, pr, rest = m.groups()
-                        # Lógica simplificada de mediador
-                        nome_m = rest.rsplit("SIM", 1)[-1].strip() if "SIM" in rest else "OUTROS"
-                        dados_med[nome_m].append([get_dia_semana(dt), dt, hr, pr, "", "", nome_m])
+                        med = rest.rsplit("SIM", 1)[-1].strip() if "SIM" in rest else "OUTROS"
+                        dados_m[med].append([get_dia_semana(dt), dt, hr, pr, "", "", med])
                 
-                zip_b = io.BytesIO()
-                with zipfile.ZipFile(zip_b, "a") as zf:
-                    for med, regs in dados_med.items():
-                        zf.writestr(f"{med}.pdf", gerar_pdf_bytes(med, regs))
-                st.download_button("Baixar ZIP", zip_b.getvalue(), "pautas.zip")
+                if dados_m:
+                    z_buf = io.BytesIO()
+                    with zipfile.ZipFile(z_buf, "a") as zf:
+                        for med, regs in dados_m.items():
+                            zf.writestr(f"{med}.pdf", gerar_pdf_bytes(med, regs))
+                    st.download_button("📥 Baixar ZIP", z_buf.getvalue(), "pautas.zip", "application/zip")
