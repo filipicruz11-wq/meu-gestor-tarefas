@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from sqlalchemy import create_engine, text
 import calendar
 import holidays
-import time # Movido para o topo para evitar erros
+import time
 
 # Configuração da página
 st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide")
@@ -110,7 +110,7 @@ else:
     # --- SIDEBAR ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
-        # 02) Incluída TAREFA na lista
+        # 02) Incluída TAREFA na lista de seleção
         lista_tipos = ["", "TAREFA", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
         
         try: idx_tipo = lista_tipos.index(st.session_state.val_tipo)
@@ -118,7 +118,7 @@ else:
 
         tipo_sel = st.selectbox("Tipo", lista_tipos, index=idx_tipo, key=f"sel_{st.session_state.campo_key}")
         
-        # 02) Tarefa também possui data de vencimento
+        # Tarefa agora também habilita o campo de data de vencimento
         if tipo_sel in ["TAREFA", "LEMBRETE", "COMPROMISSO", ""]:
             dt_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"dat_{st.session_state.campo_key}")
         else: dt_venc = datetime.now().date()
@@ -151,7 +151,7 @@ else:
             st.rerun()
 
     # --- ABAS ---
-    # 04) Nova ordem das abas
+    # 04) Abas reorganizadas na ordem solicitada
     t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal = st.tabs([
         "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
     ])
@@ -164,20 +164,20 @@ else:
             dv = datetime.strptime(str(p_str), '%Y-%m-%d').date()
             hoje = datetime.now().date()
             dif = (dv - hoje).days
-            # 01) Corrigido de "VENDIDO" para "VENCIDO"
+            # 01) CORREÇÃO: "VENCIDO" com C
             if dif <= 0: return "red", "🔴 VENCIDO"
             elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
             else: return "blue", "🔵 FUTURO"
         except: return "blue", "🔵 SEM DATA"
 
-    # --- ABA INÍCIO ---
+    # --- ABA INÍCIO (DASHBOARD) ---
     with t_dash:
         st.subheader("Visão Geral")
-        # 03) Incluído TAREFA no gráfico da home
-        c_t, c_l, c_c = st.columns(3)
-        colunas_grid = [c_t, c_l, c_c]
+        # 03) Gráfico para Tarefa incluído (agora são 3 colunas)
+        c_t, c_c, c_l = st.columns(3)
+        colunas_grid = [c_t, c_c, c_l]
         
-        for i, nome in enumerate(["TAREFA", "LEMBRETE", "COMPROMISSO"]):
+        for i, nome in enumerate(["TAREFA", "COMPROMISSO", "LEMBRETE"]):
             dff = df[df['tipo'] == nome]
             cts = {"red": 0, "gold": 0, "blue": 0}
             for p in dff['prazo'].dropna():
@@ -272,7 +272,7 @@ else:
             html += '</tr>'
         st.markdown(html + '</table>', unsafe_allow_html=True)
 
-    # Execução das listagens (na nova ordem)
+    # Execução das listagens (na nova ordem solicitada)
     listar("TAREFA", t_tar)
     listar("COMPROMISSO", t_com)
     listar("LEMBRETE", t_lem)
