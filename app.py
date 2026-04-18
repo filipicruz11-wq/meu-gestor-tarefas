@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from sqlalchemy import create_engine, text
 import calendar
 import holidays
+import time # Movido para o topo para evitar erros
 
 # Configuração da página
 st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide")
@@ -38,7 +39,7 @@ def exibir_detalhes(assunto, descricao):
     if st.button("Fechar", width="stretch"):
         st.rerun()
 
-# --- CAIXA DE DIÁLOGO: CONFIRMAR EXCLUSÃO (NOVA) ---
+# --- CAIXA DE DIÁLOGO: CONFIRMAR EXCLUSÃO ---
 @st.dialog("Confirmar Exclusão")
 def confirmar_exclusao(id_item, assunto):
     st.warning(f"Deseja realmente excluir o lançamento: **{assunto}**?")
@@ -49,7 +50,7 @@ def confirmar_exclusao(id_item, assunto):
             cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": id_item})
             cn.commit()
         st.success("Excluído!")
-        time.sleep(0.5) # Pequena pausa para o usuário ver o feedback
+        time.sleep(0.5)
         st.rerun()
     if col2.button("❌ Não, cancelar", use_container_width=True):
         st.rerun()
@@ -69,8 +70,6 @@ if 'val_prazo' not in st.session_state: st.session_state.val_prazo = datetime.no
 
 if 'cal_mes' not in st.session_state: st.session_state.cal_mes = datetime.now().month
 if 'cal_ano' not in st.session_state: st.session_state.cal_ano = datetime.now().year
-
-import time # Necessário para o feedback visual de exclusão
 
 def limpar_tudo():
     st.session_state.editando_id = None
@@ -111,14 +110,16 @@ else:
     # --- SIDEBAR ---
     with st.sidebar:
         st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
-        lista_tipos = ["", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
+        # 02) Incluída TAREFA na lista
+        lista_tipos = ["", "TAREFA", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
         
         try: idx_tipo = lista_tipos.index(st.session_state.val_tipo)
         except: idx_tipo = 0
 
         tipo_sel = st.selectbox("Tipo", lista_tipos, index=idx_tipo, key=f"sel_{st.session_state.campo_key}")
         
-        if tipo_sel in ["LEMBRETE", "COMPROMISSO", ""]:
+        # 02) Tarefa também possui data de vencimento
+        if tipo_sel in ["TAREFA", "LEMBRETE", "COMPROMISSO", ""]:
             dt_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"dat_{st.session_state.campo_key}")
         else: dt_venc = datetime.now().date()
             
@@ -150,8 +151,9 @@ else:
             st.rerun()
 
     # --- ABAS ---
-    t_dash, t_lem, t_com, t_info, t_cont, t_aud, t_mod, t_cal = st.tabs([
-        "🏠 INÍCIO", "📝 LEMBRETES", "📅 COMPROMISSOS", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
+    # 04) Nova ordem das abas
+    t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal = st.tabs([
+        "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
     ])
 
     try: df = pd.read_sql("SELECT * FROM tarefas", engine)
@@ -162,6 +164,7 @@ else:
             dv = datetime.strptime(str(p_str), '%Y-%m-%d').date()
             hoje = datetime.now().date()
             dif = (dv - hoje).days
+            # 01) Corrigido de "VENDIDO" para "VENCIDO"
             if dif <= 0: return "red", "🔴 VENCIDO"
             elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
             else: return "blue", "🔵 FUTURO"
@@ -170,8 +173,11 @@ else:
     # --- ABA INÍCIO ---
     with t_dash:
         st.subheader("Visão Geral")
-        c_l, c_c = st.columns(2)
-        for i, nome in enumerate(["LEMBRETE", "COMPROMISSO"]):
+        # 03) Incluído TAREFA no gráfico da home
+        c_t, c_l, c_c = st.columns(3)
+        colunas_grid = [c_t, c_l, c_c]
+        
+        for i, nome in enumerate(["TAREFA", "LEMBRETE", "COMPROMISSO"]):
             dff = df[df['tipo'] == nome]
             cts = {"red": 0, "gold": 0, "blue": 0}
             for p in dff['prazo'].dropna():
@@ -186,8 +192,7 @@ else:
                 text=[cts["blue"], cts["gold"], cts["red"]], textposition='outside'
             ))
             fig.update_layout(title=f"{nome}S", height=230, margin=dict(l=10, r=50, t=40, b=10), xaxis=dict(visible=False))
-            if i == 0: c_l.plotly_chart(fig, use_container_width=True)
-            else: c_c.plotly_chart(fig, use_container_width=True)
+            colunas_grid[i].plotly_chart(fig, use_container_width=True)
 
     # --- FUNÇÕES DE LISTAGEM ---
     def listar(tipo, tab):
@@ -209,7 +214,7 @@ else:
                     st.rerun()
                 
                 if c6.button("🗑️", key=f"d_{r['id']}"):
-                    confirmar_exclusao(r['id'], r['assunto']) # Chama a confirmação
+                    confirmar_exclusao(r['id'], r['assunto'])
                 st.markdown("---")
 
     def listar_simples(tipo, tab, icone):
@@ -227,7 +232,7 @@ else:
                     st.rerun()
                     
                 if c3.button("🗑️", key=f"ds_{r['id']}"):
-                    confirmar_exclusao(r['id'], r['assunto']) # Chama a confirmação
+                    confirmar_exclusao(r['id'], r['assunto'])
                 st.markdown("---")
 
     # --- ABA CALENDÁRIO ---
@@ -267,9 +272,10 @@ else:
             html += '</tr>'
         st.markdown(html + '</table>', unsafe_allow_html=True)
 
-    # Execução das listagens
-    listar("LEMBRETE", t_lem)
+    # Execução das listagens (na nova ordem)
+    listar("TAREFA", t_tar)
     listar("COMPROMISSO", t_com)
+    listar("LEMBRETE", t_lem)
     listar_simples("INFORMAÇÃO", t_info, "📌")
     listar_simples("CONTATO", t_cont, "📞")
     listar_simples("AUDIÊNCIA", t_aud, "⚖️")
