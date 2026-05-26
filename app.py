@@ -6,11 +6,13 @@ from sqlalchemy import create_engine, text
 import calendar
 import holidays
 import time
+import requests
+import os
 
-# Configuração da página
-st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide")
+# --- 1. CONFIGURAÇÃO ÚNICA DA PÁGINA ---
+st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide", page_icon="📲")
 
-# --- BLOQUEIO DE TRADUÇÃO AUTOMÁTICA (Resolve "Marchar" e "Poderia") ---
+# --- BLOQUEIO DE TRADUÇÃO AUTOMÁTICA ---
 st.markdown("""
     <head>
         <meta name="google" content="notranslate">
@@ -74,6 +76,7 @@ if 'logado' not in st.session_state: st.session_state.logado = False
 if 'editando_id' not in st.session_state: st.session_state.editando_id = None
 if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
 
+# Estados da Agenda
 if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
 if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
 if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
@@ -81,6 +84,13 @@ if 'val_prazo' not in st.session_state: st.session_state.val_prazo = datetime.no
 
 if 'cal_mes' not in st.session_state: st.session_state.cal_mes = datetime.now().month
 if 'cal_ano' not in st.session_state: st.session_state.cal_ano = datetime.now().year
+
+# --- ESTADOS DO WHATSAPP ---
+if "form_reset_key" not in st.session_state:
+    st.session_state["form_reset_key"] = 0
+
+def acao_limpar_whatsapp():
+    st.session_state["form_reset_key"] += 1
 
 def limpar_tudo():
     st.session_state.editando_id = None
@@ -159,9 +169,9 @@ else:
             st.query_params.clear()
             st.rerun()
 
-    # --- ABAS ---
-    t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal = st.tabs([
-        "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO"
+    # --- ABAS (WhatsApp adicionado no final) ---
+    t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal, t_wpp = st.tabs([
+        "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO", "📲 WHATSAPP"
     ])
 
     try: df = pd.read_sql("SELECT * FROM tarefas", engine)
@@ -278,7 +288,74 @@ else:
             html += '</tr>'
         st.markdown(html + '</table>', unsafe_allow_html=True)
 
-    # Execução das listagens
+    # --- 📲 NOVA ABA: WHATSAPP ---
+    with t_wpp:
+        st.subheader("📲 ENVIO POR WHATSAPP")
+        st.markdown("---")
+
+        # Credenciais das Variáveis de Ambiente
+        ID_INSTANCE = os.environ.get("ID_INSTANCE")
+        API_TOKEN = os.environ.get("API_TOKEN")
+        DESTINO = os.environ.get("MEU_NUMERO")
+
+        # Botão Limpar Tela
+        st.button("🗑️ LIMPAR TUDO (RESETAR TELA)", on_click=acao_limpar_whatsapp, use_container_width=True, key="btn_wpp_clear")
+
+        # Formulário Dinâmico
+        with st.form(key=f"form_envio_{st.session_state['form_reset_key']}", clear_on_submit=True):
+            m1 = st.text_area("Mensagem 1:", height=100)
+            m2 = st.text_area("Mensagem 2:", height=100)
+            m3 = st.text_area("Mensagem 3:", height=100)
+            m4 = st.text_area("Mensagem 4:", height=100)
+
+            arquivos = st.file_uploader(
+                "Arraste e solte os arquivos aqui ou clique para selecionar", 
+                accept_multiple_files=True
+            )
+
+            submit = st.form_submit_button("🚀 ENVIAR AGORA", use_container_width=True)
+
+        # Lógica de Envio API
+        if submit:
+            mensagens_para_enviar = [msg.strip() for msg in [m1, m2, m3, m4] if msg.strip()]
+            
+            if not arquivos and not mensagens_para_enviar:
+                st.warning("⚠️ Selecione ao menos um arquivo ou digite uma mensagem.")
+            elif not all([ID_INSTANCE, API_TOKEN, DESTINO]):
+                st.error("❌ Erro de configuração nas variáveis de ambiente do Render.")
+            else:
+                with st.spinner("Enviando sequência..."):
+                    sucesso_geral = True
+                    
+                    # Envio de Textos
+                    url_texto = f"https://api.green-api.com/waInstance{ID_INSTANCE}/sendMessage/{API_TOKEN}"
+                    for texto in mensagens_para_enviar:
+                        try:
+                            res = requests.post(url_texto, json={'chatId': f"{DESTINO}@c.us", 'message': texto})
+                            if res.status_code != 200: sucesso_geral = False
+                        except: sucesso_geral = False
+
+                    # Envio de Arquivos
+                    url_file = f"https://api.green-api.com/waInstance{ID_INSTANCE}/sendFileByUpload/{API_TOKEN}"
+                    for arq in arquivos:
+                        try:
+                            files = [('file', (arq.name, arq.getvalue(), arq.type))]
+                            res = requests.post(url_file, data={'chatId': f"{DESTINO}@c.us", 'caption': ""}, files=files)
+                            if res.status_code != 200: sucesso_geral = False
+                        except: sucesso_geral = False
+
+                    if sucesso_geral:
+                        st.success("✅ Enviado com sucesso! Os campos foram limpos.")
+                        acao_limpar_whatsapp()
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("⚠️ Houve um problema em algum dos envios.")
+
+        st.markdown("---")
+        st.caption("Uso restrito: CEJUSC - Araçatuba/SP")
+
+    # Execução das listagens originais da agenda
     listar("TAREFA", t_tar)
     listar("COMPROMISSO", t_com)
     listar("LEMBRETE", t_lem)
