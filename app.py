@@ -112,6 +112,7 @@ engine = create_engine(DB_URL)
 
 def inicializar_db():
     with engine.connect() as conn:
+        # Criar tabelas se não existirem
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS tarefas (
                 id SERIAL PRIMARY KEY,
@@ -157,6 +158,13 @@ def inicializar_db():
                 conteudo TEXT NOT NULL
             );
         """))
+        
+        # Garante a existência de colunas em bancos/tabelas já existentes (Previne KeyError)
+        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Pendente';"))
+        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS prioridade TEXT DEFAULT 'Média';"))
+        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS processo TEXT;"))
+        conn.execute(text("ALTER TABLE audiencias ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Agendada';"))
+        
         conn.commit()
 
 try:
@@ -294,14 +302,14 @@ with t_dash:
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        pendentes = len(df_tar[df_tar['status'] == 'Pendente']) if not df_tar.empty else 0
+        pendentes = len(df_tar[df_tar['status'] == 'Pendente']) if not df_tar.empty and 'status' in df_tar.columns else 0
         st.metric("Tarefas Pendentes", pendentes)
     with col2:
         hoje = date.today()
-        atrasadas = len(df_tar[(df_tar['prazo'] < hoje) & (df_tar['status'] == 'Pendente')]) if not df_tar.empty else 0
+        atrasadas = len(df_tar[(pd.to_datetime(df_tar['prazo']).dt.date < hoje) & (df_tar['status'] == 'Pendente')]) if not df_tar.empty and 'status' in df_tar.columns else 0
         st.metric("Tarefas Atrasadas", atrasadas, delta_color="inverse")
     with col3:
-        aud_agendadas = len(df_aud[df_aud['status'] == 'Agendada']) if not df_aud.empty else 0
+        aud_agendadas = len(df_aud[df_aud['status'] == 'Agendada']) if not df_aud.empty and 'status' in df_aud.columns else 0
         st.metric("Audiências Agendadas", aud_agendadas)
     with col4:
         lembretes_cnt = len(df_lem) if not df_lem.empty else 0
@@ -312,7 +320,7 @@ with t_dash:
     
     with c1:
         st.markdown("### 📌 Próximos Prazos")
-        if not df_tar.empty:
+        if not df_tar.empty and 'status' in df_tar.columns:
             df_tar['prazo'] = pd.to_datetime(df_tar['prazo']).dt.date
             proximos = df_tar[df_tar['status'] == 'Pendente'].sort_values('prazo').head(5)
             st.dataframe(proximos[['titulo', 'processo', 'prazo', 'prioridade']], use_container_width=True)
@@ -321,7 +329,7 @@ with t_dash:
 
     with c2:
         st.markdown("### ⚖️ Próximas Audiências")
-        if not df_aud.empty:
+        if not df_aud.empty and 'status' in df_aud.columns:
             df_aud['data'] = pd.to_datetime(df_aud['data']).dt.date
             proximas_aud = df_aud[df_aud['status'] == 'Agendada'].sort_values('data').head(5)
             st.dataframe(proximas_aud[['processo', 'partes', 'data', 'horario', 'modalidade']], use_container_width=True)
