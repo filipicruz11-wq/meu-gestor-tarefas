@@ -159,10 +159,12 @@ def inicializar_db():
             );
         """))
         
-        # Adiciona colunas ausentes caso a tabela tenha sido criada em uma versão antiga
+        # Garante que todas as colunas necessárias existam no PostgreSQL
+        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS titulo TEXT DEFAULT 'Sem Título';"))
         conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Pendente';"))
         conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS prioridade TEXT DEFAULT 'Média';"))
-        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS processo TEXT;"))
+        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS processo TEXT DEFAULT '';"))
+        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS prazo DATE DEFAULT CURRENT_DATE;"))
         conn.execute(text("ALTER TABLE audiencias ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Agendada';"))
 
 try:
@@ -264,17 +266,33 @@ def processar_com_gemini(texto_bruto, opcao_menu):
 def carregar_dados(tabela):
     with engine.connect() as conn:
         df = pd.read_sql(f"SELECT * FROM {tabela}", conn)
-        # Proteção contra KeyError em tabelas legadas
+        
+        # Garantia de colunas essenciais na memória (evita KeyError)
         if tabela == "tarefas":
-            if 'status' not in df.columns:
-                df['status'] = 'Pendente'
-            if 'prioridade' not in df.columns:
-                df['prioridade'] = 'Média'
-            if 'processo' not in df.columns:
-                df['processo'] = ''
+            colunas_requeridas = {
+                'titulo': 'Sem Título',
+                'processo': '',
+                'prazo': date.today(),
+                'prioridade': 'Média',
+                'status': 'Pendente'
+            }
+            for col, valor_padrao in colunas_requeridas.items():
+                if col not in df.columns:
+                    df[col] = valor_padrao
+
         elif tabela == "audiencias":
-            if 'status' not in df.columns:
-                df['status'] = 'Agendada'
+            colunas_requeridas = {
+                'processo': '',
+                'partes': '',
+                'data': date.today(),
+                'horario': '00:00',
+                'modalidade': 'Presencial',
+                'status': 'Agendada'
+            }
+            for col, valor_padrao in colunas_requeridas.items():
+                if col not in df.columns:
+                    df[col] = valor_padrao
+                    
         return df
 
 def executar_query(sql, params=None):
@@ -562,7 +580,7 @@ with t_wpp:
             st.markdown(f"👉 [Clique aqui para abrir no WhatsApp]({link})")
 
 # ------------------------------------------
-# 11. TAB IA DO CEJUSC (NOVA INTEGRAÇÃO)
+# 11. TAB IA DO CEJUSC
 # ------------------------------------------
 with t_ia:
     if not API_KEY:
