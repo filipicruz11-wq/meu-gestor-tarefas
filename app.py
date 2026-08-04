@@ -111,7 +111,7 @@ if DB_URL.startswith("postgres://"):
 engine = create_engine(DB_URL)
 
 def inicializar_db():
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         # Criar tabelas se não existirem
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS tarefas (
@@ -159,13 +159,11 @@ def inicializar_db():
             );
         """))
         
-        # Garante a existência de colunas em bancos/tabelas já existentes (Previne KeyError)
+        # Adiciona colunas ausentes caso a tabela tenha sido criada em uma versão antiga
         conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Pendente';"))
         conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS prioridade TEXT DEFAULT 'Média';"))
         conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS processo TEXT;"))
         conn.execute(text("ALTER TABLE audiencias ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Agendada';"))
-        
-        conn.commit()
 
 try:
     inicializar_db()
@@ -265,12 +263,23 @@ def processar_com_gemini(texto_bruto, opcao_menu):
 # ==========================================
 def carregar_dados(tabela):
     with engine.connect() as conn:
-        return pd.read_sql(f"SELECT * FROM {tabela}", conn)
+        df = pd.read_sql(f"SELECT * FROM {tabela}", conn)
+        # Proteção contra KeyError em tabelas legadas
+        if tabela == "tarefas":
+            if 'status' not in df.columns:
+                df['status'] = 'Pendente'
+            if 'prioridade' not in df.columns:
+                df['prioridade'] = 'Média'
+            if 'processo' not in df.columns:
+                df['processo'] = ''
+        elif tabela == "audiencias":
+            if 'status' not in df.columns:
+                df['status'] = 'Agendada'
+        return df
 
 def executar_query(sql, params=None):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         conn.execute(text(sql), params or {})
-        conn.commit()
 
 # ==========================================
 # CABEÇALHO DO DASHBOARD
@@ -302,14 +311,18 @@ with t_dash:
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        pendentes = len(df_tar[df_tar['status'] == 'Pendente']) if not df_tar.empty and 'status' in df_tar.columns else 0
+        pendentes = len(df_tar[df_tar['status'] == 'Pendente']) if not df_tar.empty else 0
         st.metric("Tarefas Pendentes", pendentes)
     with col2:
         hoje = date.today()
-        atrasadas = len(df_tar[(pd.to_datetime(df_tar['prazo']).dt.date < hoje) & (df_tar['status'] == 'Pendente')]) if not df_tar.empty and 'status' in df_tar.columns else 0
+        if not df_tar.empty:
+            df_tar['prazo_dt'] = pd.to_datetime(df_tar['prazo']).dt.date
+            atrasadas = len(df_tar[(df_tar['prazo_dt'] < hoje) & (df_tar['status'] == 'Pendente')])
+        else:
+            atrasadas = 0
         st.metric("Tarefas Atrasadas", atrasadas, delta_color="inverse")
     with col3:
-        aud_agendadas = len(df_aud[df_aud['status'] == 'Agendada']) if not df_aud.empty and 'status' in df_aud.columns else 0
+        aud_agendadas = len(df_aud[df_aud['status'] == 'Agendada']) if not df_aud.empty else 0
         st.metric("Audiências Agendadas", aud_agendadas)
     with col4:
         lembretes_cnt = len(df_lem) if not df_lem.empty else 0
@@ -320,19 +333,21 @@ with t_dash:
     
     with c1:
         st.markdown("### 📌 Próximos Prazos")
-        if not df_tar.empty and 'status' in df_tar.columns:
+        if not df_tar.empty:
             df_tar['prazo'] = pd.to_datetime(df_tar['prazo']).dt.date
             proximos = df_tar[df_tar['status'] == 'Pendente'].sort_values('prazo').head(5)
-            st.dataframe(proximos[['titulo', 'processo', 'prazo', 'prioridade']], use_container_width=True)
+            cols_exibir = [c for c in ['titulo', 'processo', 'prazo', 'prioridade'] if c in proximos.columns]
+            st.dataframe(proximos[cols_exibir], use_container_width=True)
         else:
             st.info("Nenhuma tarefa cadastrada.")
 
     with c2:
         st.markdown("### ⚖️ Próximas Audiências")
-        if not df_aud.empty and 'status' in df_aud.columns:
+        if not df_aud.empty:
             df_aud['data'] = pd.to_datetime(df_aud['data']).dt.date
             proximas_aud = df_aud[df_aud['status'] == 'Agendada'].sort_values('data').head(5)
-            st.dataframe(proximas_aud[['processo', 'partes', 'data', 'horario', 'modalidade']], use_container_width=True)
+            cols_exibir_aud = [c for c in ['processo', 'partes', 'data', 'horario', 'modalidade'] if c in proximas_aud.columns]
+            st.dataframe(proximas_aud[cols_exibir_aud], use_container_width=True)
         else:
             st.info("Nenhuma audiência agendada.")
 
