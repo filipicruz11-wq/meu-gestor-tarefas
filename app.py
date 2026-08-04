@@ -1,658 +1,365 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-from datetime import date, datetime, timedelta
-import holidays
-import psycopg2
+from datetime import datetime
+import plotly.graph_objects as go
 from sqlalchemy import create_engine, text
-import requests
-import json
+import calendar
+import holidays
 import time
+import requests
 import os
-from google import genai
-from google.genai import errors, types
 
-# ==========================================
-# CONFIGURAÇÃO DA PÁGINA
-# ==========================================
-st.set_page_config(
-    page_title="CEJUSC - Gestão do Gabinete",
-    page_icon="⚖️",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- 1. CONFIGURAÇÃO ÚNICA DA PÁGINA ---
+st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide", page_icon="📲")
 
-# Estilização CSS Profissional
+# --- BLOQUEIO DE TRADUÇÃO AUTOMÁTICA ---
 st.markdown("""
-    <style>
-    .stApp { background-color: #F8FAFC; }
-    
-    .header-container {
-        background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%);
-        padding: 1.5rem 2rem;
-        border-radius: 12px;
-        color: white;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-    .header-title {
-        font-size: 2rem;
-        font-weight: 700;
-        margin: 0;
-        color: #FFFFFF !important;
-    }
-    .header-subtitle {
-        font-size: 0.95rem;
-        color: #93C5FD;
-        margin-top: 4px;
-    }
+    <head>
+        <meta name="google" content="notranslate">
+    </head>
+    """, unsafe_allow_html=True)
 
-    .stSelectbox label, .stTextArea label, .stAudioInput label, .stRadio label {
-        font-size: 0.95rem !important;
-        font-weight: 600 !important;
-        color: #1E293B !important;
-    }
-
-    .stTextArea textarea {
-        background-color: #FFFFFF !important;
-        border: 1px solid #CBD5E1 !important;
-        border-radius: 8px !important;
-        font-size: 0.95rem !important;
-        color: #0F172A !important;
-    }
-
-    /* Estilo dos Botões */
-    .stButton > button {
-        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        font-size: 1rem !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 0.6rem 1.5rem !important;
-        width: 100% !important;
-    }
-
-    /* Caixa do Documento Gerado na IA */
-    div[data-testid="stTextArea"] textarea[aria-label="Documento Gerado:"] {
-        background-color: #FFFFFF !important;
-        border: 1px solid #CBD5E1 !important;
-        border-left: 6px solid #2563EB !important;
-        border-radius: 8px !important;
-        font-family: 'Georgia', 'Times New Roman', serif !important;
-        font-size: 1.05rem !important;
-        line-height: 1.7 !important;
-        color: #0F172A !important;
-    }
-
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    </style>
-""", unsafe_allow_html=True)
-
-# ==========================================
-# CONEXÃO COM O BANCO DE DADOS (POSTGRESQL)
-# ==========================================
-DB_URL = os.environ.get("DATABASE_URL")
-
-if not DB_URL:
-    try:
-        DB_URL = st.secrets["DATABASE_URL"]
-    except Exception:
-        DB_URL = None
-
-if not DB_URL:
-    st.error("⚠️ Erro: Conexão com Banco de Dados não configurada. Defina DATABASE_URL nas variáveis do Render.")
-    st.stop()
-
-if DB_URL.startswith("postgres://"):
-    DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
-
+# --- CONEXÃO COM BANCO ---
+DB_URL = "postgresql://admin:m9QWSOMx5wPsxYHfP7rFMemMwfB64cOY@dpg-d776jalm5p6s739g3h3g-a/agenda_x7my"
 engine = create_engine(DB_URL)
 
 def inicializar_db():
-    with engine.begin() as conn:
-        # Criar tabelas se não existirem
+    with engine.connect() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS tarefas (
-                id SERIAL PRIMARY KEY,
-                titulo TEXT NOT NULL,
-                processo TEXT,
-                prazo DATE NOT NULL,
-                prioridade TEXT DEFAULT 'Média',
-                status TEXT DEFAULT 'Pendente'
-            );
-            CREATE TABLE IF NOT EXISTS compromissos (
-                id SERIAL PRIMARY KEY,
-                titulo TEXT NOT NULL,
-                data DATE NOT NULL,
-                horario TIME NOT NULL,
-                tipo TEXT DEFAULT 'Reunião'
-            );
-            CREATE TABLE IF NOT EXISTS lembretes (
-                id SERIAL PRIMARY KEY,
-                texto TEXT NOT NULL,
-                data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS audiencias (
-                id SERIAL PRIMARY KEY,
-                processo TEXT NOT NULL,
-                partes TEXT NOT NULL,
-                data DATE NOT NULL,
-                horario TIME NOT NULL,
-                modalidade TEXT DEFAULT 'Presencial',
-                status TEXT DEFAULT 'Agendada'
-            );
-            CREATE TABLE IF NOT EXISTS contatos (
-                id SERIAL PRIMARY KEY,
-                nome TEXT NOT NULL,
-                cargo TEXT,
-                orgao TEXT,
-                telefone TEXT,
-                email TEXT
-            );
-            CREATE TABLE IF NOT EXISTS modelos (
-                id SERIAL PRIMARY KEY,
-                titulo TEXT NOT NULL,
-                categoria TEXT NOT NULL,
-                conteudo TEXT NOT NULL
-            );
+                id SERIAL PRIMARY KEY, tipo TEXT, prazo TEXT, assunto TEXT, descricao TEXT
+            )
         """))
-        
-        # Garante que todas as colunas necessárias existam no PostgreSQL
-        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS titulo TEXT DEFAULT 'Sem Título';"))
-        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Pendente';"))
-        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS prioridade TEXT DEFAULT 'Média';"))
-        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS processo TEXT DEFAULT '';"))
-        conn.execute(text("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS prazo DATE DEFAULT CURRENT_DATE;"))
-        conn.execute(text("ALTER TABLE audiencias ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Agendada';"))
+        conn.commit()
 
-try:
-    inicializar_db()
-except Exception as e:
-    st.error(f"Erro ao inicializar banco de dados: {e}")
+inicializar_db()
 
-# ==========================================
-# CONFIGURAÇÃO E FUNÇÕES DA IA DO CEJUSC
-# ==========================================
-API_KEY = os.environ.get("GEMINI_API_KEY")
-if not API_KEY:
-    try:
-        API_KEY = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        API_KEY = None
-
-client = genai.Client(api_key=API_KEY) if API_KEY else None
-
-ARQUIVO_BANCO_MODELOS = "BANCO DE DADOS OBJETOS.txt"
-ARQUIVO_BANCO_TERMOS = "BANCO DE DADOS TERMOS.txt"
-
-def carregar_arquivo_texto(nome_arquivo):
-    diretorios = [os.getcwd(), os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()]
-    for pasta in diretorios:
-        caminho_direto = os.path.join(pasta, nome_arquivo)
-        if os.path.exists(caminho_direto):
-            try:
-                with open(caminho_direto, "r", encoding="utf-8", errors="ignore") as f:
-                    return f.read()
-            except Exception as e:
-                return f"[Erro ao ler {nome_arquivo}: {e}]"
-    return f"[Aviso: O arquivo '{nome_arquivo}' não foi encontrado.]"
-
-PROMPTS = {
-    "1": """Você é um assistente especialista na redação de RELATOS DE CASOS para o CEJUSC.
-    REGRAS DE SAÍDA E FORMATAÇÃO:
-    - Retorne APENAS o texto final do relato. NÃO inclua saudações, explicações, metadados ou tópicos informando as correções feitas.
-    - NÃO use símbolos de markdown como asteriscos (** ou *) para negrito. Devolva texto limpo pronto para colar em editores oficiais.
-    - OBRIGATÓRIO: Mantenha ou utilize sempre as nomenclaturas Reclamante(s) e Reclamado(a)(s). NUNCA substitua por Requerente(s) ou Requerido(a)(s).
-    - INSTRUÇÃO DE MODELO: Analise o Banco de Dados de Modelos Oficiais fornecido abaixo. Se o caso trazido pelo usuário se encaixar em algum deles, utilize a estrutura daquele modelo preenchendo-o com os dados concretos fornecidos. Caso nenhum modelo do arquivo se adeque perfeitamente, faça a estruturação, correção e adequação livre do relato de forma impecável.
-    - Mantenha integralmente todos os nomes, datas, valores, endereços e matrículas.
-    - Organize débitos/bens em listas alfabéticas (a, b, c).""",
-    
-    "2": """Você é um assistente especializado na redação de CERTIDÕES PROCESSUAIS para o CEJUSC. Retorne APENAS o texto formal sem asteriscos. Finalize rigorosamente com a expressão: 'CERTIFICO e dou fé.'""",
-    "3": """Você é um assistente especializado na redação de MINUTAS DE SENTENÇA E HOMOLOGAÇÕES para o CEJUSC. Retorne APENAS o texto final da minuta sem asteriscos. Utilize a estrutura formal (Relatório, Fundamentação e Dispositivo). Para homologação de acordo, utilize o Art. 487, III, 'b' do CPC.""",
-    "4": """Você é um assistente especializado na redação de DESPACHOS E DECISÕES INTERLOCUTÓRIAS para o CEJUSC. Retorne APENAS a minuta final sem asteriscos.""",
-    "5": """Você é um assistente especializado em REDAÇÃO DE E-MAILS INSTITUCIONAIS para o CEJUSC. Retorne APENAS o e-mail pronto para envio sem asteriscos.""",
-    "6": """Você é um assistente especializado em NOTIFICAÇÕES VIA WHATSAPP para o CEJUSC. Retorne APENAS a mensagem. UTILIZE A SINTAXE DO WHATSAPP (*texto em negrito*, _texto em itálico_).""",
-    "7": """Você é um assistente especialista de consulta e esclarecimento de DÚVIDAS GERAIS.""",
-    "8": """Você é um assistente especializado na redação e estruturação de TERMOS DE AUDIÊNCIA para o CEJUSC. Retorne APENAS o texto formal do termo sem asteriscos.""",
-    "9": """Você é um revisor de textos. Corrija a gramática e clareza preservando o estilo original.""",
-    "10": """Você é um assistente objetivo para consulta rápida de documentos no atendimento do CEJUSC."""
-}
-
-def transcrever_audio(audio_bytes, mime_type):
-    if not client: 
-        raise Exception("A chave GEMINI_API_KEY não foi configurada no sistema.")
-    audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
-    prompt = "Transcreva com máxima fidelidade o áudio a seguir para texto. Retorne APENAS a transcrição exata das palavras faladas, sem explicações ou comentários."
-    
-    modelos = ["gemini-flash-latest", "gemini-2.0-flash-lite", "gemini-flash-lite-latest"]
-    for modelo in modelos:
-        try:
-            response = client.models.generate_content(model=modelo, contents=[prompt, audio_part])
-            return response.text.strip()
-        except errors.APIError:
-            time.sleep(2)
-    raise Exception("Não foi possível transcrever o áudio no momento.")
-
-def processar_com_gemini(texto_bruto, opcao_menu):
-    if not client:
-        raise Exception("A chave GEMINI_API_KEY não foi configurada no sistema.")
-    prompt_sistema = PROMPTS.get(opcao_menu, PROMPTS["1"])
-    
-    if opcao_menu == "1":
-        conteudo_banco = carregar_arquivo_texto(ARQUIVO_BANCO_MODELOS)
-        prompt_completo = f"{prompt_sistema}\n\nBANCO DE DADOS DE MODELOS (ARQUIVO EXTERNO):\n{conteudo_banco}\n\nPEDIDO OU RELATO DO CASO FORNECIDO PELO USUÁRIO:\n{texto_bruto}"
-    elif opcao_menu == "8":
-        conteudo_termos = carregar_arquivo_texto(ARQUIVO_BANCO_TERMOS)
-        prompt_completo = f"{prompt_sistema}\n\nBANCO DE DADOS DE TERMOS (ARQUIVO EXTERNO):\n{conteudo_termos}\n\nDADOS DA AUDIÊNCIA OU CASO FORNECIDO PELO USUÁRIO:\n{texto_bruto}"
-    elif opcao_menu in ["7", "10"]:
-        prompt_completo = f"{prompt_sistema}\n\nCASO OU DÚVIDA INFORMADA:\n{texto_bruto}"
+# --- CAIXA DE DIÁLOGO: DETALHES ---
+@st.dialog("Detalhes da Atividade", width="large")
+def exibir_detalhes(assunto, descricao):
+    st.markdown(f"### {assunto}")
+    if descricao:
+        descricao_limpa = descricao.replace("<span>", "").replace("</span>", "")
+        descricao_formatada = descricao_limpa.replace("\n", "<br>")
+        st.markdown(f"""
+            <div class="caixa-texto-fix" style="white-space: pre-wrap; word-wrap: break-word;">
+                {descricao_formatada}
+            </div>
+        """, unsafe_allow_html=True)
     else:
-        prompt_completo = f"{prompt_sistema}\n\nTEXTO BRUTO A SER PROCESSADO:\n{texto_bruto}"
+        st.write("Sem descrição disponível.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Fechar", width="stretch"):
+        st.rerun()
 
-    modelos = ["gemini-flash-latest", "gemini-2.0-flash-lite", "gemini-flash-lite-latest"]
-    for modelo in modelos:
-        try:
-            response = client.models.generate_content(model=modelo, contents=prompt_completo)
-            return response.text
-        except errors.APIError:
-            time.sleep(2)
-    raise Exception("Servidores indisponíveis no momento. Tente novamente.")
+# --- CAIXA DE DIÁLOGO: CONFIRMAR EXCLUSÃO ---
+@st.dialog("Confirmar Exclusão")
+def confirmar_exclusao(id_item, assunto):
+    st.warning(f"Deseja realmente excluir o lançamento: **{assunto}**?")
+    st.markdown("Esta ação não pode ser desfeita.")
+    col1, col2 = st.columns(2)
+    if col1.button("✅ Sim, excluir", use_container_width=True, type="primary"):
+        with engine.connect() as cn:
+            cn.execute(text("DELETE FROM tarefas WHERE id=:i"), {"i": id_item})
+            cn.commit()
+        st.success("Excluído!")
+        time.sleep(0.5)
+        st.rerun()
+    if col2.button("❌ Não, cancelar", use_container_width=True):
+        st.rerun()
 
-# ==========================================
-# FUNÇÕES DE CONSULTA DO BANCO DE DADOS
-# ==========================================
-def carregar_dados(tabela):
-    with engine.connect() as conn:
-        df = pd.read_sql(f"SELECT * FROM {tabela}", conn)
+# --- ESTADOS DO SISTEMA ---
+if "logged" in st.query_params and st.query_params["logged"] == "true":
+    st.session_state.logado = True
+
+if 'logado' not in st.session_state: st.session_state.logado = False
+if 'editando_id' not in st.session_state: st.session_state.editando_id = None
+if 'campo_key' not in st.session_state: st.session_state.campo_key = "init"
+
+# Estados da Agenda
+if 'val_tipo' not in st.session_state: st.session_state.val_tipo = ""
+if 'val_assunto' not in st.session_state: st.session_state.val_assunto = ""
+if 'val_desc' not in st.session_state: st.session_state.val_desc = ""
+if 'val_prazo' not in st.session_state: st.session_state.val_prazo = datetime.now().date()
+
+if 'cal_mes' not in st.session_state: st.session_state.cal_mes = datetime.now().month
+if 'cal_ano' not in st.session_state: st.session_state.cal_ano = datetime.now().year
+
+# --- ESTADOS DO WHATSAPP ---
+if "form_reset_key" not in st.session_state:
+    st.session_state["form_reset_key"] = 0
+
+def acao_limpar_whatsapp():
+    st.session_state["form_reset_key"] += 1
+
+def limpar_tudo():
+    st.session_state.editando_id = None
+    st.session_state.val_tipo = ""
+    st.session_state.val_assunto = ""
+    st.session_state.val_desc = ""
+    st.session_state.val_prazo = datetime.now().date()
+    st.session_state.campo_key = f"k_{datetime.now().timestamp()}"
+
+# --- ESTILIZAÇÃO CSS ---
+st.markdown(f"""
+    <style>
+    .caixa-texto-fix {{ margin-top: 10px !important; font-family: sans-serif !important; font-size: 14px !important; line-height: 1.6 !important; color: #1E1E1E !important; }}
+    .cal-table {{ width: 100%; border-collapse: collapse; font-family: sans-serif; table-layout: fixed; background-color: #f8f9fa; border: 2px solid #adb5bd; }}
+    .cal-header {{ background-color: #e9ecef; font-weight: bold; text-align: center; padding: 8px; border: 1px solid #adb5bd; font-size: 14px; }}
+    .cal-day {{ height: 85px; text-align: right; vertical-align: top; padding: 5px; border: 1px solid #adb5bd; font-size: 14px; }}
+    .dia-util {{ background-color: #ffffff; }}
+    .dia-fds {{ background-color: #fff5f5; color: #e03131; }}
+    .dia-feriado {{ background-color: #fff9db; color: #f08c00; font-weight: bold; }}
+    .dia-vazio {{ background-color: #f1f3f5; border: 1px solid #dee2e6; }}
+    hr {{ margin: 4px 0px !important; }}
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- LOGIN ---
+if not st.session_state.logado:
+    st.title("🔐 Acesso Restrito")
+    with st.form("login_form"):
+        u = st.text_input("Usuário")
+        s = st.text_input("Senha", type="password")
+        if st.form_submit_button("ENTRAR NO SISTEMA", use_container_width=True):
+            if u == "admin" and s == "123456":
+                st.session_state.logado = True
+                st.query_params["logged"] = "true"
+                st.rerun()
+            else: st.error("Dados incorretos.")
+else:
+    # --- SIDEBAR ---
+    with st.sidebar:
+        st.header("📝 " + ("Editar Item" if st.session_state.editando_id else "Novo Cadastro"))
+        lista_tipos = ["", "TAREFA", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
         
-        # Garantia de colunas essenciais na memória (evita KeyError)
-        if tabela == "tarefas":
-            colunas_requeridas = {
-                'titulo': 'Sem Título',
-                'processo': '',
-                'prazo': date.today(),
-                'prioridade': 'Média',
-                'status': 'Pendente'
-            }
-            for col, valor_padrao in colunas_requeridas.items():
-                if col not in df.columns:
-                    df[col] = valor_padrao
+        try: idx_tipo = lista_tipos.index(st.session_state.val_tipo)
+        except: idx_tipo = 0
 
-        elif tabela == "audiencias":
-            colunas_requeridas = {
-                'processo': '',
-                'partes': '',
-                'data': date.today(),
-                'horario': '00:00',
-                'modalidade': 'Presencial',
-                'status': 'Agendada'
-            }
-            for col, valor_padrao in colunas_requeridas.items():
-                if col not in df.columns:
-                    df[col] = valor_padrao
-                    
-        return df
+        tipo_sel = st.selectbox("Tipo", lista_tipos, index=idx_tipo, key=f"sel_{st.session_state.campo_key}")
+        
+        if tipo_sel in ["TAREFA", "LEMBRETE", "COMPROMISSO", ""]:
+            dt_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"dat_{st.session_state.campo_key}")
+        else: dt_venc = datetime.now().date()
+            
+        ass_in = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"ass_{st.session_state.campo_key}")
+        des_in = st.text_area("Descrição", value=st.session_state.val_desc, height=250, key=f"des_{st.session_state.campo_key}")
+        
+        if st.button("✅ Salvar", use_container_width=True):
+            if not tipo_sel or not ass_in: st.error("Preencha Tipo e Assunto!")
+            else:
+                with engine.connect() as conn:
+                    p = {"t": tipo_sel, "p": str(dt_venc), "a": ass_in, "de": des_in}
+                    if st.session_state.editando_id:
+                        p["i"] = st.session_state.editando_id
+                        conn.execute(text("UPDATE tarefas SET tipo=:t, prazo=:p, assunto=:a, descricao=:de WHERE id=:i"), p)
+                    else:
+                        conn.execute(text("INSERT INTO tarefas (tipo, prazo, assunto, descricao) VALUES (:t, :p, :a, :de)"), p)
+                    conn.commit()
+                st.success("Salvo!")
+                limpar_tudo()
+                st.rerun()
+        
+        if st.button("🧹 Limpar", use_container_width=True):
+            limpar_tudo()
+            st.rerun()
+            
+        if st.button("🚪 Sair", use_container_width=True):
+            st.session_state.logado = False
+            st.query_params.clear()
+            st.rerun()
 
-def executar_query(sql, params=None):
-    with engine.begin() as conn:
-        conn.execute(text(sql), params or {})
+    # --- ABAS (WhatsApp adicionado no final) ---
+    t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal, t_wpp = st.tabs([
+        "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO", "📲 WHATSAPP"
+    ])
 
-# ==========================================
-# CABEÇALHO DO DASHBOARD
-# ==========================================
-st.markdown("""
-    <div class="header-container">
-        <div class="header-title">⚖️ CEJUSC - Gestão do Gabinete</div>
-        <div class="header-subtitle">Sistema Integrado de Controle de Prazos, Audiências e Automação Jurídica</div>
-    </div>
-""", unsafe_allow_html=True)
+    try: df = pd.read_sql("SELECT * FROM tarefas", engine)
+    except: df = pd.DataFrame(columns=['id', 'tipo', 'prazo', 'assunto', 'descricao'])
 
-# ==========================================
-# ABAS DE NAVEGAÇÃO (11 ABAS)
-# ==========================================
-t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal, t_wpp, t_ia = st.tabs([
-    "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES", 
-    "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO", "📲 WHATSAPP", "🤖 IA CEJUSC"
-])
+    def obter_estilo(p_str):
+        try:
+            dv = datetime.strptime(str(p_str), '%Y-%m-%d').date()
+            hoje = datetime.now().date()
+            dif = (dv - hoje).days
+            if dif <= 0: return "red", "🔴 VENCIDO"
+            elif 1 <= dif <= 2: return "gold", "🟡 PRÓXIMO"
+            else: return "blue", "🔵 FUTURO"
+        except: return "blue", "🔵 SEM DATA"
 
-# ------------------------------------------
-# 1. TAB DASHBOARD / INÍCIO
-# ------------------------------------------
-with t_dash:
-    st.subheader("📊 Painel Geral de Atividades")
-    
-    df_tar = carregar_dados("tarefas")
-    df_aud = carregar_dados("audiencias")
-    df_lem = carregar_dados("lembretes")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        pendentes = len(df_tar[df_tar['status'] == 'Pendente']) if not df_tar.empty else 0
-        st.metric("Tarefas Pendentes", pendentes)
-    with col2:
-        hoje = date.today()
-        if not df_tar.empty:
-            df_tar['prazo_dt'] = pd.to_datetime(df_tar['prazo']).dt.date
-            atrasadas = len(df_tar[(df_tar['prazo_dt'] < hoje) & (df_tar['status'] == 'Pendente')])
-        else:
-            atrasadas = 0
-        st.metric("Tarefas Atrasadas", atrasadas, delta_color="inverse")
-    with col3:
-        aud_agendadas = len(df_aud[df_aud['status'] == 'Agendada']) if not df_aud.empty else 0
-        st.metric("Audiências Agendadas", aud_agendadas)
-    with col4:
-        lembretes_cnt = len(df_lem) if not df_lem.empty else 0
-        st.metric("Lembretes Ativos", lembretes_cnt)
+    # --- ABA INÍCIO (DASHBOARD) ---
+    with t_dash:
+        st.subheader("Visão Geral")
+        c_t, c_c, c_l = st.columns(3)
+        colunas_grid = [c_t, c_c, c_l]
+        
+        for i, nome in enumerate(["TAREFA", "COMPROMISSO", "LEMBRETE"]):
+            dff = df[df['tipo'] == nome]
+            cts = {"red": 0, "gold": 0, "blue": 0}
+            for p in dff['prazo'].dropna():
+                cor, _ = obter_estilo(p)
+                cts[cor] += 1
+            
+            fig = go.Figure(go.Bar(
+                x=[cts["blue"], cts["gold"], cts["red"]],
+                y=["3+ dias", "2 dias", "Vencido"],
+                orientation='h',
+                marker_color=["blue", "gold", "red"],
+                text=[cts["blue"], cts["gold"], cts["red"]], textposition='outside'
+            ))
+            fig.update_layout(title=f"{nome}S", height=230, margin=dict(l=10, r=50, t=40, b=10), xaxis=dict(visible=False))
+            colunas_grid[i].plotly_chart(fig, use_container_width=True)
 
-    st.markdown("---")
-    c1, c2 = st.columns(2)
-    
-    with c1:
-        st.markdown("### 📌 Próximos Prazos")
-        if not df_tar.empty:
-            df_tar['prazo'] = pd.to_datetime(df_tar['prazo']).dt.date
-            proximos = df_tar[df_tar['status'] == 'Pendente'].sort_values('prazo').head(5)
-            cols_exibir = [c for c in ['titulo', 'processo', 'prazo', 'prioridade'] if c in proximos.columns]
-            st.dataframe(proximos[cols_exibir], use_container_width=True)
-        else:
-            st.info("Nenhuma tarefa cadastrada.")
-
-    with c2:
-        st.markdown("### ⚖️ Próximas Audiências")
-        if not df_aud.empty:
-            df_aud['data'] = pd.to_datetime(df_aud['data']).dt.date
-            proximas_aud = df_aud[df_aud['status'] == 'Agendada'].sort_values('data').head(5)
-            cols_exibir_aud = [c for c in ['processo', 'partes', 'data', 'horario', 'modalidade'] if c in proximas_aud.columns]
-            st.dataframe(proximas_aud[cols_exibir_aud], use_container_width=True)
-        else:
-            st.info("Nenhuma audiência agendada.")
-
-# ------------------------------------------
-# 2. TAB TAREFAS
-# ------------------------------------------
-with t_tar:
-    st.subheader("📌 Gerenciamento de Tarefas")
-    
-    with st.expander("➕ Nova Tarefa", expanded=False):
-        with st.form("form_tarefa"):
-            titulo = st.text_input("Título da Tarefa*")
-            processo = st.text_input("Número do Processo")
-            prazo = st.date_input("Prazo*", value=date.today() + timedelta(days=5))
-            prioridade = st.selectbox("Prioridade", ["Baixa", "Média", "Alta", "Urgente"])
-            if st.form_submit_button("Salvar Tarefa"):
-                if titulo:
-                    executar_query(
-                        "INSERT INTO tarefas (titulo, processo, prazo, prioridade, status) VALUES (:t, :p, :pr, :prio, 'Pendente')",
-                        {"t": titulo, "p": processo, "pr": prazo, "prio": prioridade}
-                    )
-                    st.success("Tarefa salva com sucesso!")
+    # --- FUNÇÕES DE LISTAGEM ---
+    def listar(tipo, tab):
+        with tab:
+            dff = df[df['tipo'] == tipo].sort_values(by='prazo')
+            for _, r in dff.iterrows():
+                dt = datetime.strptime(r['prazo'], '%Y-%m-%d')
+                _, txt_st = obter_estilo(r['prazo'])
+                c1, c2, c3, c4, c5, c6 = st.columns([0.15, 0.12, 0.12, 0.46, 0.075, 0.075])
+                c1.write(txt_st)
+                c2.write(dt.strftime('%d/%m/%Y'))
+                if c4.button(f"**{r['assunto']}**", key=f"b_{r['id']}", use_container_width=True):
+                    exibir_detalhes(r['assunto'], r['descricao'])
+                
+                if c5.button("📝", key=f"e_{r['id']}"):
+                    st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
+                    st.session_state.val_assunto, st.session_state.val_desc, st.session_state.val_prazo = r['assunto'], r['descricao'], dt.date()
+                    st.session_state.campo_key = f"edit_{r['id']}"
                     st.rerun()
-                else:
-                    st.error("Informe o título da tarefa.")
+                
+                if c6.button("🗑️", key=f"d_{r['id']}"):
+                    confirmar_exclusao(r['id'], r['assunto'])
+                st.markdown("---")
 
-    df_tar = carregar_dados("tarefas")
-    if not df_tar.empty:
-        st.dataframe(df_tar, use_container_width=True)
+    def listar_simples(tipo, tab, icone):
+        with tab:
+            dff = df[df['tipo'] == tipo].sort_values(by='assunto')
+            for _, r in dff.iterrows():
+                c1, c2, c3 = st.columns([0.85, 0.075, 0.075])
+                if c1.button(f"{icone} **{r['assunto']}**", key=f"s_{r['id']}", use_container_width=True):
+                    exibir_detalhes(r['assunto'], r['descricao'])
+                
+                if c2.button("📝", key=f"es_{r['id']}"):
+                    st.session_state.editando_id, st.session_state.val_tipo = r['id'], r['tipo']
+                    st.session_state.val_assunto, st.session_state.val_desc = r['assunto'], r['descricao']
+                    st.session_state.campo_key = f"edit_s_{r['id']}"
+                    st.rerun()
+                    
+                if c3.button("🗑️", key=f"ds_{r['id']}"):
+                    confirmar_exclusao(r['id'], r['assunto'])
+                st.markdown("---")
+
+    # --- ABA CALENDÁRIO ---
+    with t_cal:
+        c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
+        with c_nav2:
+            n1, n2, n3 = st.columns([1, 2, 1])
+            if n1.button("⬅️ Ant."):
+                st.session_state.cal_mes -= 1
+                if st.session_state.cal_mes < 1: st.session_state.cal_mes, st.session_state.cal_ano = 12, st.session_state.cal_ano - 1
+                st.rerun()
+            meses = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+            n2.markdown(f"<h4 style='text-align:center'>{meses[st.session_state.cal_mes]} {st.session_state.cal_ano}</h4>", unsafe_allow_html=True)
+            if n3.button("Próx. ➡️"):
+                st.session_state.cal_mes += 1
+                if st.session_state.cal_mes > 12: st.session_state.cal_mes, st.session_state.cal_ano = 1, st.session_state.cal_ano + 1
+                st.rerun()
+
+        calendar.setfirstweekday(calendar.SUNDAY)
+        cal = calendar.monthcalendar(st.session_state.cal_ano, st.session_state.cal_mes)
+        br_hols = holidays.BR()
         
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            id_concluir = st.number_input("ID da Tarefa para Concluir", min_value=1, step=1)
-            if st.button("Marcar como Concluída"):
-                executar_query("UPDATE tarefas SET status='Concluída' WHERE id=:id", {"id": id_concluir})
-                st.success("Status atualizado!")
-                st.rerun()
-        with col_m2:
-            id_deletar = st.number_input("ID da Tarefa para Excluir", min_value=1, step=1)
-            if st.button("Excluir Tarefa"):
-                executar_query("DELETE FROM tarefas WHERE id=:id", {"id": id_deletar})
-                st.success("Tarefa excluída!")
-                st.rerun()
-
-# ------------------------------------------
-# 3. TAB COMPROMISSOS
-# ------------------------------------------
-with t_com:
-    st.subheader("📅 Compromissos do Gabinete")
-    
-    with st.form("form_compromisso"):
-        titulo_comp = st.text_input("Compromisso")
-        data_comp = st.date_input("Data", value=date.today())
-        horario_comp = st.time_input("Horário", value=datetime.now().time())
-        tipo_comp = st.selectbox("Tipo", ["Reunião", "Sessão", "Atendimento", "Outro"])
-        if st.form_submit_button("Agendar Compromisso"):
-            if titulo_comp:
-                executar_query(
-                    "INSERT INTO compromissos (titulo, data, horario, tipo) VALUES (:t, :d, :h, :tp)",
-                    {"t": titulo_comp, "d": data_comp, "h": horario_comp, "tp": tipo_comp}
-                )
-                st.success("Compromisso agendado!")
-                st.rerun()
-
-    df_com = carregar_dados("compromissos")
-    st.dataframe(df_com, use_container_width=True)
-
-# ------------------------------------------
-# 4. TAB LEMBRETES
-# ------------------------------------------
-with t_lem:
-    st.subheader("📝 Lembretes Rápidos")
-    
-    with st.form("form_lembrete"):
-        texto_lembrete = st.text_area("Novo Lembrete")
-        if st.form_submit_button("Adicionar Lembrete"):
-            if texto_lembrete:
-                executar_query("INSERT INTO lembretes (texto) VALUES (:t)", {"t": texto_lembrete})
-                st.success("Lembrete salvo!")
-                st.rerun()
-
-    df_lem = carregar_dados("lembretes")
-    for _, row in df_lem.iterrows():
-        st.warning(f"📌 [{row['data_criacao']}] {row['texto']}")
-
-# ------------------------------------------
-# 5. TAB INFORMAÇÕES
-# ------------------------------------------
-with t_info:
-    st.subheader("ℹ️ Informações Úteis do CEJUSC")
-    st.markdown("""
-    * **Horário de Atendimento:** 08:00 às 17:00
-    * **Balcão Virtual:** Link oficial de atendimento
-    * **Orientações Gerais:**
-      - Atendimentos pré-processuais exigem documento com foto e comprovante de residência.
-      - Termos de acordo devem ser enviados diretamente para homologação via sistema.
-    """)
-
-# ------------------------------------------
-# 6. TAB CONTATOS
-# ------------------------------------------
-with t_cont:
-    st.subheader("📞 Agenda de Contatos Institucionais")
-    
-    with st.expander("➕ Adicionar Contato"):
-        with st.form("form_contato"):
-            nome = st.text_input("Nome")
-            cargo = st.text_input("Cargo")
-            orgao = st.text_input("Órgão/Setor")
-            telefone = st.text_input("Telefone")
-            email = st.text_input("E-mail")
-            if st.form_submit_button("Salvar Contato"):
-                executar_query(
-                    "INSERT INTO contatos (nome, cargo, orgao, telefone, email) VALUES (:n, :c, :o, :t, :e)",
-                    {"n": nome, "c": cargo, "o": orgao, "t": telefone, "e": email}
-                )
-                st.success("Contato cadastrado!")
-                st.rerun()
-
-    df_cont = carregar_dados("contatos")
-    st.dataframe(df_cont, use_container_width=True)
-
-# ------------------------------------------
-# 7. TAB AUDIÊNCIAS
-# ------------------------------------------
-with t_aud:
-    st.subheader("⚖️ Pauta de Audiências")
-    
-    with st.expander("➕ Agendar Audiência"):
-        with st.form("form_aud"):
-            proc = st.text_input("Processo/Reclamação")
-            partes = st.text_input("Partes (Reclamante x Reclamado)")
-            data_aud = st.date_input("Data da Audiência")
-            hora_aud = st.time_input("Horário")
-            modalidade = st.selectbox("Modalidade", ["Presencial", "Virtual (Teams)", "Híbrida"])
-            if st.form_submit_button("Agendar Audiência"):
-                executar_query(
-                    "INSERT INTO audiencias (processo, partes, data, horario, modalidade) VALUES (:p, :pa, :d, :h, :m)",
-                    {"p": proc, "pa": partes, "d": data_aud, "h": hora_aud, "m": modalidade}
-                )
-                st.success("Audiência agendada!")
-                st.rerun()
-
-    df_aud = carregar_dados("audiencias")
-    st.dataframe(df_aud, use_container_width=True)
-
-# ------------------------------------------
-# 8. TAB MODELOS
-# ------------------------------------------
-with t_mod:
-    st.subheader("📄 Banco de Modelos de Documentos")
-    
-    with st.expander("➕ Adicionar Modelo"):
-        with st.form("form_modelo"):
-            tit_mod = st.text_input("Título do Modelo")
-            cat_mod = st.selectbox("Categoria", ["Termo", "Certidão", "Despacho", "Sentença", "Outro"])
-            conteudo_mod = st.text_area("Conteúdo do Modelo", height=200)
-            if st.form_submit_button("Salvar Modelo"):
-                executar_query(
-                    "INSERT INTO modelos (titulo, categoria, conteudo) VALUES (:t, :c, :cnt)",
-                    {"t": tit_mod, "c": cat_mod, "cnt": conteudo_mod}
-                )
-                st.success("Modelo cadastrado!")
-                st.rerun()
-
-    df_mod = carregar_dados("modelos")
-    st.dataframe(df_mod, use_container_width=True)
-
-# ------------------------------------------
-# 9. TAB CALENDÁRIO & PRAZOS
-# ------------------------------------------
-with t_cal:
-    st.subheader("📅 Calculadora de Prazos Processuais")
-    
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        data_inicio = st.date_input("Data de Início/Intimação", value=date.today())
-        dias_prazo = st.number_input("Quantidade de Dias", min_value=1, value=15)
-        contar_uteis = st.checkbox("Contar apenas dias úteis (CPC)", value=True)
-        uf_feriados = st.text_input("UF para Feriados (Ex: MA, SP, RJ)", value="MA")
-
-    with col_c2:
-        if st.button("Calcular Prazo Final"):
-            data_atual = data_inicio
-            dias_contados = 0
-            feriados_br = holidays.BR(prov=uf_feriados if uf_feriados else None)
-            
-            while dias_contados < dias_prazo:
-                data_atual += timedelta(days=1)
-                if contar_uteis:
-                    if data_atual.weekday() < 5 and data_atual not in feriados_br:
-                        dias_contados += 1
+        html = '<table class="cal-table"><tr>'
+        for sem in ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]: html += f'<th class="cal-header">{sem}</th>'
+        html += '</tr>'
+        for semana in cal:
+            html += '<tr>'
+            for i, dia in enumerate(semana):
+                if dia == 0: html += '<td class="cal-day dia-vazio"></td>'
                 else:
-                    dias_contados += 1
+                    data_at = datetime(st.session_state.cal_ano, st.session_state.cal_mes, dia)
+                    classe = "dia-fds" if i == 0 or i == 6 else "dia-util"
+                    feriado = br_hols.get(data_at)
+                    if feriado: classe = "dia-feriado"
+                    txt_f = f'<div style="font-size:9px; color:#f08c00; line-height:1">{feriado}</div>' if feriado else ""
+                    html += f'<td class="cal-day {classe}"><b>{dia}</b>{txt_f}</td>'
+            html += '</tr>'
+        st.markdown(html + '</table>', unsafe_allow_html=True)
 
-            st.success(f"🎯 **Prazo Final:** {data_atual.strftime('%d/%m/%Y')}")
-
-# ------------------------------------------
-# 10. TAB WHATSAPP
-# ------------------------------------------
-with t_wpp:
-    st.subheader("📲 Notificações via WhatsApp")
-    
-    numero_wpp = st.text_input("Número com DDD (Ex: 5598912345678)")
-    mensagem_wpp = st.text_area("Mensagem")
-    
-    if st.button("Gerar Link do WhatsApp"):
-        if numero_wpp and mensagem_wpp:
-            import urllib.parse
-            texto_enc = urllib.parse.quote(mensagem_wpp)
-            link = f"https://wa.me/{numero_wpp}?text={texto_enc}"
-            st.markdown(f"👉 [Clique aqui para abrir no WhatsApp]({link})")
-
-# ------------------------------------------
-# 11. TAB IA DO CEJUSC
-# ------------------------------------------
-with t_ia:
-    if not API_KEY:
-        st.error("⚠️ A chave GEMINI_API_KEY não foi configurada no servidor. Cadastre-a nas variáveis de ambiente do Render.")
-    else:
-        st.subheader("🤖 IA DO CEJUSC - Automação Jurídica Pré-Processual")
+    # --- 📲 NOVA ABA: WHATSAPP ---
+    with t_wpp:
+        st.subheader("📲 ENVIO POR WHATSAPP")
         st.markdown("---")
-        
-        col_esq, col_dir = st.columns([1, 1], gap="large")
 
-        with col_esq:
-            st.subheader("📝 Dados de Entrada")
-            
-            opcao_escolhida = st.selectbox(
-                "Selecione o tipo de documento a ser gerado:",
-                (
-                    "1 - Relato de Caso", "2 - Certidão Processual", "3 - Sentença / Homologação de Acordo",
-                    "4 - Despacho / Decisão", "5 - E-mail Institucional", "6 - Mensagem para WhatsApp",
-                    "7 - Dúvidas Gerais", "8 - Termo de Audiência", "9 - Correção de Redação", "10 - Orientações de Documentos"
-                ),
-                key="ia_opcao_sel"
+        # Credenciais das Variáveis de Ambiente
+        ID_INSTANCE = os.environ.get("ID_INSTANCE")
+        API_TOKEN = os.environ.get("API_TOKEN")
+        DESTINO = os.environ.get("MEU_NUMERO")
+
+        # Botão Limpar Tela
+        st.button("🗑️ LIMPAR TUDO (RESETAR TELA)", on_click=acao_limpar_whatsapp, use_container_width=True, key="btn_wpp_clear")
+
+        # Formulário Dinâmico
+        with st.form(key=f"form_envio_{st.session_state['form_reset_key']}", clear_on_submit=True):
+            m1 = st.text_area("Mensagem 1:", height=100)
+            m2 = st.text_area("Mensagem 2:", height=100)
+            m3 = st.text_area("Mensagem 3:", height=100)
+            m4 = st.text_area("Mensagem 4:", height=100)
+
+            arquivos = st.file_uploader(
+                "Arraste e solte os arquivos aqui ou clique para selecionar", 
+                accept_multiple_files=True
             )
-            opcao_ia = opcao_escolhida.split(" - ")[0]
 
-            if "ia_texto_entrada" not in st.session_state:
-                st.session_state.ia_texto_entrada = ""
+            submit = st.form_submit_button("🚀 ENVIAR AGORA", use_container_width=True)
 
-            audio_ia = st.audio_input("🎙️ Gravar relato falado (Opcional):", key="ia_audio_input")
+        # Lógica de Envio API
+        if submit:
+            mensagens_para_enviar = [msg.strip() for msg in [m1, m2, m3, m4] if msg.strip()]
             
-            if audio_ia is not None:
-                if st.button("📝 Converter Áudio em Texto", key="btn_transcrever_ia"):
-                    with st.spinner("Transcrevendo áudio para o campo de texto..."):
+            if not arquivos and not mensagens_para_enviar:
+                st.warning("⚠️ Selecione ao menos um arquivo ou digite uma mensagem.")
+            elif not all([ID_INSTANCE, API_TOKEN, DESTINO]):
+                st.error("❌ Erro de configuração nas variáveis de ambiente do Render.")
+            else:
+                with st.spinner("Enviando sequência..."):
+                    sucesso_geral = True
+                    
+                    # Envio de Textos
+                    url_texto = f"https://api.green-api.com/waInstance{ID_INSTANCE}/sendMessage/{API_TOKEN}"
+                    for texto in mensagens_para_enviar:
                         try:
-                            transcricao = transcrever_audio(audio_ia.read(), audio_ia.type)
-                            if st.session_state.ia_texto_entrada.strip():
-                                st.session_state.ia_texto_entrada += f"\n{transcricao}"
-                            else:
-                                st.session_state.ia_texto_entrada = transcricao
-                            st.success("Áudio transcrito com sucesso! Verifique o texto abaixo.")
-                        except Exception as e:
-                            st.error(f"Erro na transcrição: {e}")
+                            res = requests.post(url_texto, json={'chatId': f"{DESTINO}@c.us", 'message': texto})
+                            if res.status_code != 200: sucesso_geral = False
+                        except: sucesso_geral = False
 
-            st.session_state.ia_texto_entrada = st.text_area(
-                "Insira ou edite as informações do atendimento/rascunho abaixo:",
-                value=st.session_state.ia_texto_entrada,
-                height=260,
-                placeholder="Digite o relato aqui ou grave um áudio acima para transcrever...",
-                key="ia_text_area_input"
-            )
-
-            btn_processar_ia = st.button("✨ Gerar Documento Jurídico", type="primary", key="btn_processar_ia")
-
-        with col_dir:
-            st.subheader("📄 Documento Gerado")
-            
-            if "ia_resultado_texto" not in st.session_state:
-                st.session_state.ia_resultado_texto = ""
-
-            if btn_processar_ia:
-                if not st.session_state.ia_texto_entrada.strip():
-                    st.warning("⚠️ Insira ou transcreva um texto nos Dados de Entrada antes de gerar.")
-                else:
-                    with st.spinner("Estruturando o documento jurídico com base nas normas do CEJUSC..."):
+                    # Envio de Arquivos
+                    url_file = f"https://api.green-api.com/waInstance{ID_INSTANCE}/sendFileByUpload/{API_TOKEN}"
+                    for arq in arquivos:
                         try:
-                            st.session_state.ia_resultado_texto = processar_com_gemini(st.session_state.ia_texto_entrada, opcao_ia)
-                        except Exception as e:
-                            st.error(f"Erro ao processar: {e}")
+                            files = [('file', (arq.name, arq.getvalue(), arq.type))]
+                            res = requests.post(url_file, data={'chatId': f"{DESTINO}@c.us", 'caption': ""}, files=files)
+                            if res.status_code != 200: sucesso_geral = False
+                        except: sucesso_geral = False
 
-            st.text_area(
-                "Documento Gerado:",
-                value=st.session_state.ia_resultado_texto,
-                height=400,
-                placeholder="O documento pronto para cópia aparecerá aqui...",
-                key="ia_text_area_output"
-            )
+                    if sucesso_geral:
+                        st.success("✅ Enviado com sucesso! Os campos foram limpos.")
+                        acao_limpar_whatsapp()
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("⚠️ Houve um problema em algum dos envios.")
+
+        st.markdown("---")
+        st.caption("Uso restrito: CEJUSC - Araçatuba/SP")
+
+    # Execução das listagens originais da agenda
+    listar("TAREFA", t_tar)
+    listar("COMPROMISSO", t_com)
+    listar("LEMBRETE", t_lem)
+    listar_simples("INFORMAÇÃO", t_info, "📌")
+    listar_simples("CONTATO", t_cont, "📞")
+    listar_simples("AUDIÊNCIA", t_aud, "⚖️")
+    listar_simples("MODELO", t_mod, "📄")
