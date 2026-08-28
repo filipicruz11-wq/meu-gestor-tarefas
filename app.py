@@ -35,7 +35,7 @@ st.markdown(
 DB_URL = "postgresql://admin:m9QWSOMx5wPsxYHfP7rFMemMwfB64cOY@dpg-d776jalm5p6s739g3h3g-a/agenda_x7my"
 
 if DB_URL == "postgresql://admin:m9QWSOMx5wPsxYHfP7rFMemMwfB64cOY@dpg-d776jalm5p6s739g3h3g-a/agenda_x7my":
-    st.error("Configure a constante DB_URL no inicio do arquivo antes de executar.")
+    st.error("postgresql://admin:m9QWSOMx5wPsxYHfP7rFMemMwfB64cOY@dpg-d776jalm5p6s739g3h3g-a/agenda_x7my")
     st.stop()
 
 engine = create_engine(DB_URL, pool_pre_ping=True)
