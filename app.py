@@ -22,7 +22,18 @@ st.set_page_config(
 
 # Evita a traducao automatica da pagina pelo Google.
 st.markdown(
-    '<meta name="google" content="notranslate">',
+    """
+    <meta name="google" content="notranslate">
+    <style>
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"] {
+        translate: no !important;
+    }
+
+    .notranslate {
+        translate: no !important;
+    }
+    </style>
+    """,
     unsafe_allow_html=True,
 )
 
@@ -298,6 +309,7 @@ else:
                 value=st.session_state.val_prazo,
                 format="DD/MM/YYYY",
                 key=f"dat_{st.session_state.campo_key}",
+                help="Selecione a data",
             )
         else:
             dt_venc = datetime.now().date()
