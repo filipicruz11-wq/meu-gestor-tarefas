@@ -11,6 +11,7 @@ import requests
 import streamlit as st
 from sqlalchemy import create_engine, text
 
+
 # ============================================================
 # 1. CONFIGURACAO DA PAGINA
 # ============================================================
@@ -24,8 +25,12 @@ st.set_page_config(
 st.markdown(
     """
     <meta name="google" content="notranslate">
+
     <style>
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"] {
+    html,
+    body,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stSidebar"] {
         translate: no !important;
     }
 
@@ -37,15 +42,50 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 # ============================================================
 # 2. CONEXAO COM O BANCO
 # ============================================================
-# Como solicitado, a configuracao permanece no proprio codigo.
-# Por seguranca, a credencial enviada na conversa nao foi repetida no arquivo.
-# Cole abaixo a mesma URL PostgreSQL que ja esta usando.
-DB_URL = "postgresql://admin:m9QWSOMx5wPsxYHfP7rFMemMwfB64cOY@dpg-d776jalm5p6s739g3h3g-a/agenda_x7my"
+DB_URL = os.environ.get("DATABASE_URL")
 
-engine = create_engine(DB_URL, pool_pre_ping=True)
+if not DB_URL:
+    st.error(
+        "A variável de ambiente DATABASE_URL não foi configurada no Render."
+    )
+    st.stop()
+
+# Corrige URLs antigas fornecidas como postgres://.
+if DB_URL.startswith("postgres://"):
+    DB_URL = DB_URL.replace(
+        "postgres://",
+        "postgresql+psycopg://",
+        1,
+    )
+
+# Define explicitamente o Psycopg 3 como driver.
+elif DB_URL.startswith("postgresql://"):
+    DB_URL = DB_URL.replace(
+        "postgresql://",
+        "postgresql+psycopg://",
+        1,
+    )
+
+try:
+    engine = create_engine(
+        DB_URL,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_size=5,
+        max_overflow=5,
+        connect_args={
+            "connect_timeout": 30,
+        },
+    )
+except Exception as erro:
+    st.error(
+        f"Não foi possível configurar a conexão com o banco: {erro}"
+    )
+    st.stop()
 
 
 def inicializar_db():
@@ -68,30 +108,37 @@ def inicializar_db():
 try:
     inicializar_db()
 except Exception as erro:
-    st.error(f"Nao foi possivel conectar ao banco de dados: {erro}")
+    st.error(f"Não foi possível conectar ao banco de dados: {erro}")
     st.stop()
+
 
 # ============================================================
 # 3. ESTADOS DO SISTEMA
 # ============================================================
 if "logado" not in st.session_state:
     st.session_state.logado = False
+
 if "editando_id" not in st.session_state:
     st.session_state.editando_id = None
+
 if "campo_key" not in st.session_state:
     st.session_state.campo_key = "init"
 
 if "val_tipo" not in st.session_state:
     st.session_state.val_tipo = ""
+
 if "val_assunto" not in st.session_state:
     st.session_state.val_assunto = ""
+
 if "val_desc" not in st.session_state:
     st.session_state.val_desc = ""
+
 if "val_prazo" not in st.session_state:
     st.session_state.val_prazo = datetime.now().date()
 
 if "cal_mes" not in st.session_state:
     st.session_state.cal_mes = datetime.now().month
+
 if "cal_ano" not in st.session_state:
     st.session_state.cal_ano = datetime.now().year
 
@@ -111,23 +158,71 @@ def limpar_tudo():
     st.session_state.val_prazo = datetime.now().date()
     st.session_state.campo_key = f"k_{time.time_ns()}"
 
+
 # ============================================================
-# 4. CAIXAS DE DIALOGO
+# 4. REQUISICOES HTTP COM NOVAS TENTATIVAS
+# ============================================================
+def fazer_requisicao_com_retry(
+    url,
+    *,
+    json=None,
+    data=None,
+    files=None,
+    timeout=(30, 120),
+    tentativas=3,
+):
+    ultimo_erro = None
+
+    for tentativa in range(1, tentativas + 1):
+        try:
+            resposta = requests.post(
+                url,
+                json=json,
+                data=data,
+                files=files,
+                timeout=timeout,
+            )
+
+            return resposta, None
+
+        except (
+            requests.exceptions.ConnectTimeout,
+            requests.exceptions.ReadTimeout,
+            requests.exceptions.ConnectionError,
+        ) as erro:
+            ultimo_erro = erro
+
+            if tentativa < tentativas:
+                espera = 5 * tentativa
+                time.sleep(espera)
+
+        except requests.exceptions.RequestException as erro:
+            return None, str(erro)
+
+    return (
+        None,
+        f"Falha após {tentativas} tentativas: {ultimo_erro}",
+    )
+
+
+# ============================================================
+# 5. CAIXAS DE DIALOGO
 # ============================================================
 @st.dialog("Detalhes da Atividade", width="large")
 def exibir_detalhes(assunto, descricao):
     assunto_seguro = html.escape(str(assunto or ""))
+
     st.markdown(f"### {assunto_seguro}")
 
     if descricao:
         descricao_segura = html.escape(str(descricao))
-        descricao_formatada = descricao_segura.replace("\n", "<br>")
+
         st.markdown(
             f"""
-            <div class="caixa-texto-fix"
-                 style="white-space: pre-wrap; overflow-wrap: anywhere;">
-                {descricao_formatada}
-            </div>
+            <div
+                class="caixa-texto-fix"
+                style="white-space: pre-wrap; overflow-wrap: anywhere;"
+            >{descricao_segura}</div>
             """,
             unsafe_allow_html=True,
         )
@@ -135,14 +230,24 @@ def exibir_detalhes(assunto, descricao):
         st.write("Sem descrição disponível.")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Fechar", use_container_width=True, key="fechar_detalhes"):
+
+    if st.button(
+        "Fechar",
+        use_container_width=True,
+        key="fechar_detalhes",
+    ):
         st.rerun()
 
 
 @st.dialog("Confirmar Exclusão")
 def confirmar_exclusao(id_item, assunto):
     assunto_exibicao = str(assunto or "")
-    st.warning(f"Deseja realmente excluir o lançamento: **{assunto_exibicao}**?")
+
+    st.warning(
+        f"Deseja realmente excluir o lançamento: "
+        f"**{assunto_exibicao}**?"
+    )
+
     st.markdown("Esta ação não pode ser desfeita.")
 
     col1, col2 = st.columns(2)
@@ -156,14 +261,23 @@ def confirmar_exclusao(id_item, assunto):
         try:
             with engine.begin() as conn:
                 conn.execute(
-                    text("DELETE FROM tarefas WHERE id = :i"),
+                    text(
+                        """
+                        DELETE FROM tarefas
+                        WHERE id = :i
+                        """
+                    ),
                     {"i": int(id_item)},
                 )
+
             st.success("Excluído!")
             time.sleep(0.5)
             st.rerun()
+
         except Exception as erro:
-            st.error(f"Não foi possível excluir o lançamento: {erro}")
+            st.error(
+                f"Não foi possível excluir o lançamento: {erro}"
+            )
 
     if col2.button(
         "❌ Não, cancelar",
@@ -172,8 +286,9 @@ def confirmar_exclusao(id_item, assunto):
     ):
         st.rerun()
 
+
 # ============================================================
-# 5. ESTILIZACAO
+# 6. ESTILIZACAO
 # ============================================================
 st.markdown(
     """
@@ -241,29 +356,41 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 # ============================================================
-# 6. LOGIN
+# 7. LOGIN
 # ============================================================
-# Mantido no codigo, conforme solicitado.
-USUARIO_APP = "admin"
-SENHA_APP = "123456"
+USUARIO_APP = os.environ.get("USUARIO_APP", "admin")
+SENHA_APP = os.environ.get("SENHA_APP")
+
+if not SENHA_APP:
+    st.error(
+        "A variável de ambiente SENHA_APP não foi configurada no Render."
+    )
+    st.stop()
+
 
 if not st.session_state.logado:
     st.title("🔐 Acesso Restrito")
 
     with st.form("login_form"):
         usuario_digitado = st.text_input("Usuário")
-        senha_digitada = st.text_input("Senha", type="password")
+
+        senha_digitada = st.text_input(
+            "Senha",
+            type="password",
+        )
+
         entrar = st.form_submit_button(
             "ENTRAR NO SISTEMA",
             use_container_width=True,
         )
 
         if entrar:
-            if (
-                usuario_digitado == USUARIO_APP
-                and senha_digitada == SENHA_APP
-            ):
+            usuario_correto = usuario_digitado == USUARIO_APP
+            senha_correta = senha_digitada == SENHA_APP
+
+            if usuario_correto and senha_correta:
                 st.session_state.logado = True
                 st.rerun()
             else:
@@ -271,12 +398,15 @@ if not st.session_state.logado:
 
 else:
     # ========================================================
-    # 7. BARRA LATERAL DE CADASTRO E EDICAO
+    # 8. BARRA LATERAL DE CADASTRO E EDICAO
     # ========================================================
     with st.sidebar:
         titulo_sidebar = (
-            "Editar Item" if st.session_state.editando_id else "Novo Cadastro"
+            "Editar Item"
+            if st.session_state.editando_id is not None
+            else "Novo Cadastro"
         )
+
         st.header(f"📝 {titulo_sidebar}")
 
         lista_tipos = [
@@ -291,7 +421,9 @@ else:
         ]
 
         try:
-            idx_tipo = lista_tipos.index(st.session_state.val_tipo)
+            idx_tipo = lista_tipos.index(
+                st.session_state.val_tipo
+            )
         except ValueError:
             idx_tipo = 0
 
@@ -302,7 +434,13 @@ else:
             key=f"sel_{st.session_state.campo_key}",
         )
 
-        tipos_com_vencimento = ["TAREFA", "LEMBRETE", "COMPROMISSO", ""]
+        tipos_com_vencimento = [
+            "",
+            "TAREFA",
+            "LEMBRETE",
+            "COMPROMISSO",
+        ]
+
         if tipo_sel in tipos_com_vencimento:
             dt_venc = st.date_input(
                 "Vencimento",
@@ -327,11 +465,15 @@ else:
             key=f"des_{st.session_state.campo_key}",
         )
 
-        if st.button("✅ Salvar", use_container_width=True):
+        if st.button(
+            "✅ Salvar",
+            use_container_width=True,
+        ):
             assunto_limpo = ass_in.strip()
 
             if not tipo_sel or not assunto_limpo:
                 st.error("Preencha Tipo e Assunto!")
+
             else:
                 parametros = {
                     "t": tipo_sel,
@@ -342,13 +484,20 @@ else:
 
                 try:
                     with engine.begin() as conn:
-                        if st.session_state.editando_id is not None:
-                            parametros["i"] = int(st.session_state.editando_id)
+                        if (
+                            st.session_state.editando_id
+                            is not None
+                        ):
+                            parametros["i"] = int(
+                                st.session_state.editando_id
+                            )
+
                             conn.execute(
                                 text(
                                     """
                                     UPDATE tarefas
-                                    SET tipo = :t,
+                                    SET
+                                        tipo = :t,
                                         prazo = :p,
                                         assunto = :a,
                                         descricao = :de
@@ -357,14 +506,23 @@ else:
                                 ),
                                 parametros,
                             )
+
                         else:
                             conn.execute(
                                 text(
                                     """
-                                    INSERT INTO tarefas
-                                        (tipo, prazo, assunto, descricao)
-                                    VALUES
-                                        (:t, :p, :a, :de)
+                                    INSERT INTO tarefas (
+                                        tipo,
+                                        prazo,
+                                        assunto,
+                                        descricao
+                                    )
+                                    VALUES (
+                                        :t,
+                                        :p,
+                                        :a,
+                                        :de
+                                    )
                                     """
                                 ),
                                 parametros,
@@ -373,20 +531,29 @@ else:
                     st.success("Salvo!")
                     limpar_tudo()
                     st.rerun()
-                except Exception as erro:
-                    st.error(f"Não foi possível salvar: {erro}")
 
-        if st.button("🧹 Limpar", use_container_width=True):
+                except Exception as erro:
+                    st.error(
+                        f"Não foi possível salvar: {erro}"
+                    )
+
+        if st.button(
+            "🧹 Limpar",
+            use_container_width=True,
+        ):
             limpar_tudo()
             st.rerun()
 
-        if st.button("🚪 Sair", use_container_width=True):
+        if st.button(
+            "🚪 Sair",
+            use_container_width=True,
+        ):
             st.session_state.logado = False
             limpar_tudo()
             st.rerun()
 
     # ========================================================
-    # 8. ABAS
+    # 9. ABAS
     # ========================================================
     (
         t_dash,
@@ -419,20 +586,38 @@ else:
             df = pd.read_sql(
                 text(
                     """
-                    SELECT id, tipo, prazo, assunto, descricao
+                    SELECT
+                        id,
+                        tipo,
+                        prazo,
+                        assunto,
+                        descricao
                     FROM tarefas
                     """
                 ),
                 conn,
             )
+
     except Exception as erro:
-        st.error(f"Não foi possível carregar os registros: {erro}")
+        st.error(
+            f"Não foi possível carregar os registros: {erro}"
+        )
+
         df = pd.DataFrame(
-            columns=["id", "tipo", "prazo", "assunto", "descricao"]
+            columns=[
+                "id",
+                "tipo",
+                "prazo",
+                "assunto",
+                "descricao",
+            ]
         )
 
     def obter_estilo(p_str):
-        data_convertida = pd.to_datetime(p_str, errors="coerce")
+        data_convertida = pd.to_datetime(
+            p_str,
+            errors="coerce",
+        )
 
         if pd.isna(data_convertida):
             return "blue", "🔵 SEM DATA"
@@ -443,23 +628,35 @@ else:
 
         if diferenca <= 0:
             return "red", "🔴 VENCIDO"
+
         if 1 <= diferenca <= 2:
             return "gold", "🟡 PRÓXIMO"
+
         return "blue", "🔵 FUTURO"
 
     # ========================================================
-    # 9. PAINEL INICIAL
+    # 10. PAINEL INICIAL
     # ========================================================
     with t_dash:
         st.subheader("Visão Geral")
+
         c_t, c_c, c_l = st.columns(3)
         colunas_grid = [c_t, c_c, c_l]
 
         for indice, nome in enumerate(
-            ["TAREFA", "COMPROMISSO", "LEMBRETE"]
+            [
+                "TAREFA",
+                "COMPROMISSO",
+                "LEMBRETE",
+            ]
         ):
             dff = df[df["tipo"] == nome]
-            contagens = {"red": 0, "gold": 0, "blue": 0}
+
+            contagens = {
+                "red": 0,
+                "gold": 0,
+                "blue": 0,
+            }
 
             for prazo in dff["prazo"].dropna():
                 cor, _ = obter_estilo(prazo)
@@ -472,9 +669,17 @@ else:
                         contagens["gold"],
                         contagens["red"],
                     ],
-                    y=["3+ dias", "2 dias", "Vencido"],
+                    y=[
+                        "3+ dias",
+                        "1 a 2 dias",
+                        "Vencido",
+                    ],
                     orientation="h",
-                    marker_color=["blue", "gold", "red"],
+                    marker_color=[
+                        "blue",
+                        "gold",
+                        "red",
+                    ],
                     text=[
                         contagens["blue"],
                         contagens["gold"],
@@ -487,8 +692,15 @@ else:
             figura.update_layout(
                 title=f"{nome}S",
                 height=230,
-                margin=dict(l=10, r=50, t=40, b=10),
-                xaxis=dict(visible=False),
+                margin=dict(
+                    l=10,
+                    r=50,
+                    t=40,
+                    b=10,
+                ),
+                xaxis=dict(
+                    visible=False,
+                ),
             )
 
             colunas_grid[indice].plotly_chart(
@@ -497,15 +709,17 @@ else:
             )
 
     # ========================================================
-    # 10. FUNCOES DE LISTAGEM
+    # 11. FUNCOES DE LISTAGEM
     # ========================================================
     def listar(tipo, tab):
         with tab:
             dff = df[df["tipo"] == tipo].copy()
+
             dff["prazo_data"] = pd.to_datetime(
                 dff["prazo"],
                 errors="coerce",
             )
+
             dff = dff.sort_values(
                 by="prazo_data",
                 na_position="last",
@@ -522,13 +736,24 @@ else:
                     data_exibicao = "Sem data"
                     data_edicao = datetime.now().date()
                 else:
-                    data_exibicao = dt.strftime("%d/%m/%Y")
+                    data_exibicao = dt.strftime(
+                        "%d/%m/%Y"
+                    )
                     data_edicao = dt.date()
 
-                _, texto_status = obter_estilo(registro["prazo"])
+                _, texto_status = obter_estilo(
+                    registro["prazo"]
+                )
 
                 c1, c2, c3, c4, c5, c6 = st.columns(
-                    [0.15, 0.12, 0.02, 0.51, 0.10, 0.10]
+                    [
+                        0.15,
+                        0.12,
+                        0.02,
+                        0.51,
+                        0.10,
+                        0.10,
+                    ]
                 )
 
                 c1.write(texto_status)
@@ -549,16 +774,28 @@ else:
                     key=f"e_{registro['id']}",
                     use_container_width=True,
                 ):
-                    st.session_state.editando_id = int(registro["id"])
-                    st.session_state.val_tipo = registro["tipo"]
+                    st.session_state.editando_id = int(
+                        registro["id"]
+                    )
+
+                    st.session_state.val_tipo = registro[
+                        "tipo"
+                    ]
+
                     st.session_state.val_assunto = str(
                         registro["assunto"] or ""
                     )
+
                     st.session_state.val_desc = str(
                         registro["descricao"] or ""
                     )
+
                     st.session_state.val_prazo = data_edicao
-                    st.session_state.campo_key = f"edit_{registro['id']}"
+
+                    st.session_state.campo_key = (
+                        f"edit_{registro['id']}"
+                    )
+
                     st.rerun()
 
                 if c6.button(
@@ -576,6 +813,7 @@ else:
     def listar_simples(tipo, tab, icone):
         with tab:
             dff = df[df["tipo"] == tipo].copy()
+
             dff = dff.sort_values(
                 by="assunto",
                 na_position="last",
@@ -586,7 +824,13 @@ else:
                 return
 
             for _, registro in dff.iterrows():
-                c1, c2, c3 = st.columns([0.80, 0.10, 0.10])
+                c1, c2, c3 = st.columns(
+                    [
+                        0.80,
+                        0.10,
+                        0.10,
+                    ]
+                )
 
                 if c1.button(
                     f"{icone} **{registro['assunto']}**",
@@ -603,16 +847,30 @@ else:
                     key=f"es_{registro['id']}",
                     use_container_width=True,
                 ):
-                    st.session_state.editando_id = int(registro["id"])
-                    st.session_state.val_tipo = registro["tipo"]
+                    st.session_state.editando_id = int(
+                        registro["id"]
+                    )
+
+                    st.session_state.val_tipo = registro[
+                        "tipo"
+                    ]
+
                     st.session_state.val_assunto = str(
                         registro["assunto"] or ""
                     )
+
                     st.session_state.val_desc = str(
                         registro["descricao"] or ""
                     )
-                    st.session_state.val_prazo = datetime.now().date()
-                    st.session_state.campo_key = f"edit_s_{registro['id']}"
+
+                    st.session_state.val_prazo = (
+                        datetime.now().date()
+                    )
+
+                    st.session_state.campo_key = (
+                        f"edit_s_{registro['id']}"
+                    )
+
                     st.rerun()
 
                 if c3.button(
@@ -628,19 +886,36 @@ else:
                 st.markdown("---")
 
     # ========================================================
-    # 11. CALENDARIO
+    # 12. CALENDARIO
     # ========================================================
     with t_cal:
-        c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
+        c_nav1, c_nav2, c_nav3 = st.columns(
+            [
+                1,
+                2,
+                1,
+            ]
+        )
 
         with c_nav2:
-            n1, n2, n3 = st.columns([1, 2, 1])
+            n1, n2, n3 = st.columns(
+                [
+                    1,
+                    2,
+                    1,
+                ]
+            )
 
-            if n1.button("⬅️ Ant.", use_container_width=True):
+            if n1.button(
+                "⬅️ Ant.",
+                use_container_width=True,
+            ):
                 st.session_state.cal_mes -= 1
+
                 if st.session_state.cal_mes < 1:
                     st.session_state.cal_mes = 12
                     st.session_state.cal_ano -= 1
+
                 st.rerun()
 
             meses = [
@@ -669,26 +944,48 @@ else:
                 unsafe_allow_html=True,
             )
 
-            if n3.button("Próx. ➡️", use_container_width=True):
+            if n3.button(
+                "Próx. ➡️",
+                use_container_width=True,
+            ):
                 st.session_state.cal_mes += 1
+
                 if st.session_state.cal_mes > 12:
                     st.session_state.cal_mes = 1
                     st.session_state.cal_ano += 1
+
                 st.rerun()
 
         calendar.setfirstweekday(calendar.SUNDAY)
+
         calendario_mes = calendar.monthcalendar(
             st.session_state.cal_ano,
             st.session_state.cal_mes,
         )
 
-        feriados_br = holidays.BR(years=[st.session_state.cal_ano])
+        feriados_br = holidays.BR(
+            years=[
+                st.session_state.cal_ano,
+            ]
+        )
 
-        html_calendario = '<table class="cal-table"><tr>'
+        html_calendario = (
+            '<table class="cal-table"><tr>'
+        )
 
-        for nome_semana in ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]:
+        for nome_semana in [
+            "Dom",
+            "Seg",
+            "Ter",
+            "Qua",
+            "Qui",
+            "Sex",
+            "Sáb",
+        ]:
             html_calendario += (
-                f'<th class="cal-header">{nome_semana}</th>'
+                f'<th class="cal-header">'
+                f"{nome_semana}"
+                f"</th>"
             )
 
         html_calendario += "</tr>"
@@ -699,7 +996,8 @@ else:
             for indice_dia, dia in enumerate(semana):
                 if dia == 0:
                     html_calendario += (
-                        '<td class="cal-day dia-vazio"></td>'
+                        '<td class="cal-day dia-vazio">'
+                        "</td>"
                     )
                     continue
 
@@ -710,36 +1008,52 @@ else:
                 ).date()
 
                 classe = (
-                    "dia-fds" if indice_dia in (0, 6) else "dia-util"
+                    "dia-fds"
+                    if indice_dia in (0, 6)
+                    else "dia-util"
                 )
 
                 feriado = feriados_br.get(data_atual)
+
                 if feriado:
                     classe = "dia-feriado"
 
                 nome_feriado = (
-                    html.escape(str(feriado)) if feriado else ""
+                    html.escape(str(feriado))
+                    if feriado
+                    else ""
                 )
 
                 texto_feriado = (
-                    '<div style="font-size:9px; color:#f08c00; '
-                    f'line-height:1">{nome_feriado}</div>'
+                    '<div style="'
+                    "font-size:9px;"
+                    "color:#f08c00;"
+                    "line-height:1"
+                    '">'
+                    f"{nome_feriado}"
+                    "</div>"
                     if feriado
                     else ""
                 )
 
                 html_calendario += (
                     f'<td class="cal-day {classe}">'
-                    f"<b>{dia}</b>{texto_feriado}</td>"
+                    f"<b>{dia}</b>"
+                    f"{texto_feriado}"
+                    "</td>"
                 )
 
             html_calendario += "</tr>"
 
         html_calendario += "</table>"
-        st.markdown(html_calendario, unsafe_allow_html=True)
+
+        st.markdown(
+            html_calendario,
+            unsafe_allow_html=True,
+        )
 
     # ========================================================
-    # 12. WHATSAPP
+    # 13. WHATSAPP
     # ========================================================
     with t_wpp:
         st.subheader("📲 ENVIO POR WHATSAPP")
@@ -757,16 +1071,37 @@ else:
         )
 
         with st.form(
-            key=f"form_envio_{st.session_state.form_reset_key}",
+            key=(
+                f"form_envio_"
+                f"{st.session_state.form_reset_key}"
+            ),
             clear_on_submit=True,
         ):
-            m1 = st.text_area("Mensagem 1:", height=100)
-            m2 = st.text_area("Mensagem 2:", height=100)
-            m3 = st.text_area("Mensagem 3:", height=100)
-            m4 = st.text_area("Mensagem 4:", height=100)
+            m1 = st.text_area(
+                "Mensagem 1:",
+                height=100,
+            )
+
+            m2 = st.text_area(
+                "Mensagem 2:",
+                height=100,
+            )
+
+            m3 = st.text_area(
+                "Mensagem 3:",
+                height=100,
+            )
+
+            m4 = st.text_area(
+                "Mensagem 4:",
+                height=100,
+            )
 
             arquivos = st.file_uploader(
-                "Arraste e solte os arquivos aqui ou clique para selecionar",
+                (
+                    "Arraste e solte os arquivos aqui "
+                    "ou clique para selecionar"
+                ),
                 accept_multiple_files=True,
             )
 
@@ -778,111 +1113,273 @@ else:
         if submit:
             mensagens_para_enviar = [
                 mensagem.strip()
-                for mensagem in [m1, m2, m3, m4]
+                for mensagem in [
+                    m1,
+                    m2,
+                    m3,
+                    m4,
+                ]
                 if mensagem and mensagem.strip()
             ]
 
-            if not arquivos and not mensagens_para_enviar:
+            arquivos_para_enviar = arquivos or []
+
+            if (
+                not arquivos_para_enviar
+                and not mensagens_para_enviar
+            ):
                 st.warning(
-                    "⚠️ Selecione ao menos um arquivo ou digite uma mensagem."
+                    "⚠️ Selecione ao menos um arquivo "
+                    "ou digite uma mensagem."
                 )
-            elif not all([ID_INSTANCE, API_TOKEN, DESTINO]):
+
+            elif not all(
+                [
+                    ID_INSTANCE,
+                    API_TOKEN,
+                    DESTINO,
+                ]
+            ):
                 st.error(
-                    "❌ Erro de configuração nas variáveis de ambiente do Render."
+                    "❌ Verifique as variáveis ID_INSTANCE, "
+                    "API_TOKEN e MEU_NUMERO no Render."
                 )
+
             else:
+                destino_limpo = "".join(
+                    caractere
+                    for caractere in str(DESTINO)
+                    if caractere.isdigit()
+                )
+
+                if not destino_limpo:
+                    st.error(
+                        "❌ O número configurado em "
+                        "MEU_NUMERO é inválido."
+                    )
+                    st.stop()
+
+                chat_id = f"{destino_limpo}@c.us"
+
                 url_texto = (
                     "https://api.green-api.com/"
-                    f"waInstance{ID_INSTANCE}/sendMessage/{API_TOKEN}"
+                    f"waInstance{ID_INSTANCE}/"
+                    f"sendMessage/{API_TOKEN}"
                 )
+
                 url_arquivo = (
-                    "https://api.green-api.com/"
-                    f"waInstance{ID_INSTANCE}/sendFileByUpload/{API_TOKEN}"
+                    "https://media.green-api.com/"
+                    f"waInstance{ID_INSTANCE}/"
+                    f"sendFileByUpload/{API_TOKEN}"
                 )
 
                 erros_envio = []
+                enviados = 0
 
-                with st.spinner("Enviando sequência..."):
+                total_itens = (
+                    len(mensagens_para_enviar)
+                    + len(arquivos_para_enviar)
+                )
+
+                barra_progresso = st.progress(0)
+                texto_progresso = st.empty()
+                item_atual = 0
+
+                with st.spinner(
+                    "Enviando sequência..."
+                ):
                     for indice, mensagem in enumerate(
                         mensagens_para_enviar,
                         start=1,
                     ):
-                        try:
-                            resposta = requests.post(
+                        item_atual += 1
+
+                        texto_progresso.write(
+                            f"Enviando mensagem {indice} de "
+                            f"{len(mensagens_para_enviar)}..."
+                        )
+
+                        resposta, erro_rede = (
+                            fazer_requisicao_com_retry(
                                 url_texto,
                                 json={
-                                    "chatId": f"{DESTINO}@c.us",
+                                    "chatId": chat_id,
                                     "message": mensagem,
                                 },
-                                timeout=30,
+                                timeout=(60, 120),
+                                tentativas=3,
                             )
+                        )
 
-                            if not resposta.ok:
-                                detalhe = resposta.text[:300]
-                                erros_envio.append(
-                                    f"Mensagem {indice}: HTTP "
-                                    f"{resposta.status_code}. {detalhe}"
-                                )
-                        except requests.RequestException as erro:
+                        if erro_rede:
                             erros_envio.append(
-                                f"Mensagem {indice}: {erro}"
+                                f"Mensagem {indice}: "
+                                f"{erro_rede}"
                             )
 
-                    for arquivo in arquivos or []:
-                        try:
-                            tipo_mime = (
-                                arquivo.type or "application/octet-stream"
+                        elif resposta is None:
+                            erros_envio.append(
+                                f"Mensagem {indice}: "
+                                "nenhuma resposta recebida."
                             )
 
-                            resposta = requests.post(
+                        elif not resposta.ok:
+                            detalhe = resposta.text[:500]
+
+                            erros_envio.append(
+                                f"Mensagem {indice}: HTTP "
+                                f"{resposta.status_code}. "
+                                f"{detalhe}"
+                            )
+
+                        else:
+                            enviados += 1
+
+                        barra_progresso.progress(
+                            item_atual / total_itens
+                        )
+
+                        time.sleep(1)
+
+                    for arquivo in arquivos_para_enviar:
+                        item_atual += 1
+
+                        texto_progresso.write(
+                            f"Enviando arquivo: "
+                            f"{arquivo.name}"
+                        )
+
+                        tipo_mime = (
+                            arquivo.type
+                            or "application/octet-stream"
+                        )
+
+                        conteudo_arquivo = (
+                            arquivo.getvalue()
+                        )
+
+                        resposta, erro_rede = (
+                            fazer_requisicao_com_retry(
                                 url_arquivo,
                                 data={
-                                    "chatId": f"{DESTINO}@c.us",
+                                    "chatId": chat_id,
                                     "caption": "",
+                                    "fileName": arquivo.name,
                                 },
                                 files={
                                     "file": (
                                         arquivo.name,
-                                        arquivo.getvalue(),
+                                        conteudo_arquivo,
                                         tipo_mime,
                                     )
                                 },
-                                timeout=120,
+                                timeout=(60, 300),
+                                tentativas=3,
+                            )
+                        )
+
+                        if erro_rede:
+                            erros_envio.append(
+                                f"Arquivo {arquivo.name}: "
+                                f"{erro_rede}"
                             )
 
-                            if not resposta.ok:
-                                detalhe = resposta.text[:300]
-                                erros_envio.append(
-                                    f"Arquivo {arquivo.name}: HTTP "
-                                    f"{resposta.status_code}. {detalhe}"
-                                )
-                        except requests.RequestException as erro:
+                        elif resposta is None:
                             erros_envio.append(
-                                f"Arquivo {arquivo.name}: {erro}"
+                                f"Arquivo {arquivo.name}: "
+                                "nenhuma resposta recebida."
                             )
+
+                        elif not resposta.ok:
+                            detalhe = resposta.text[:500]
+
+                            erros_envio.append(
+                                f"Arquivo {arquivo.name}: "
+                                f"HTTP "
+                                f"{resposta.status_code}. "
+                                f"{detalhe}"
+                            )
+
+                        else:
+                            enviados += 1
+
+                        barra_progresso.progress(
+                            item_atual / total_itens
+                        )
+
+                        time.sleep(1)
+
+                texto_progresso.empty()
 
                 if erros_envio:
-                    st.error("⚠️ Alguns itens não foram enviados:")
-                    for erro in erros_envio:
-                        st.write(f"• {erro}")
+                    st.warning(
+                        f"⚠️ Foram enviados {enviados} "
+                        f"de {total_itens} itens."
+                    )
+
+                    with st.expander(
+                        (
+                            "Ver detalhes dos itens "
+                            "que falharam"
+                        ),
+                        expanded=True,
+                    ):
+                        for erro in erros_envio:
+                            st.write(f"• {erro}")
+
                 else:
                     st.success(
-                        "✅ Enviado com sucesso! Os campos foram limpos."
+                        f"✅ Todos os {total_itens} "
+                        "itens foram enviados."
                     )
+
                     acao_limpar_whatsapp()
                     time.sleep(1)
                     st.rerun()
 
         st.markdown("---")
-        st.caption("Uso restrito: CEJUSC - Araçatuba/SP")
+        st.caption(
+            "Uso restrito: CEJUSC - Araçatuba/SP"
+        )
 
     # ========================================================
-    # 13. EXECUCAO DAS LISTAGENS
+    # 14. EXECUCAO DAS LISTAGENS
     # ========================================================
-    listar("TAREFA", t_tar)
-    listar("COMPROMISSO", t_com)
-    listar("LEMBRETE", t_lem)
-    listar_simples("INFORMAÇÃO", t_info, "📌")
-    listar_simples("CONTATO", t_cont, "📞")
-    listar_simples("AUDIÊNCIA", t_aud, "⚖️")
-    listar_simples("MODELO", t_mod, "📄")
+    listar(
+        "TAREFA",
+        t_tar,
+    )
+
+    listar(
+        "COMPROMISSO",
+        t_com,
+    )
+
+    listar(
+        "LEMBRETE",
+        t_lem,
+    )
+
+    listar_simples(
+        "INFORMAÇÃO",
+        t_info,
+        "📌",
+    )
+
+    listar_simples(
+        "CONTATO",
+        t_cont,
+        "📞",
+    )
+
+    listar_simples(
+        "AUDIÊNCIA",
+        t_aud,
+        "⚖️",
+    )
+
+    listar_simples(
+        "MODELO",
+        t_mod,
+        "📄",
+    )
