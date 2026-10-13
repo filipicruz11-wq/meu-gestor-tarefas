@@ -1,7 +1,7 @@
 streamlit
 pandas
 plotly
-psycopg2-binary
-sqlalchemy
-holidays
 requests
+holidays
+SQLAlchemy>=2.0
+psycopg[binary]
