@@ -13,26 +13,25 @@ from sqlalchemy import create_engine, text
 
 st.set_page_config(page_title="Minha Agenda CEJUSC", layout="wide", page_icon="📲")
 
-st.markdown(
-    """
-    <meta name="google" content="notranslate">
-    <style>
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"] { translate: no !important; }
-    .caixa-texto-fix { margin-top:10px!important; font-family:sans-serif!important; font-size:14px!important; line-height:1.6!important; color:#1E1E1E!important; }
-    .cal-table { width:100%; border-collapse:collapse; font-family:sans-serif; table-layout:fixed; background:#f8f9fa; border:2px solid #adb5bd; }
-    .cal-header { background:#e9ecef; font-weight:bold; text-align:center; padding:8px; border:1px solid #adb5bd; font-size:14px; }
-    .cal-day { height:85px; text-align:right; vertical-align:top; padding:5px; border:1px solid #adb5bd; font-size:14px; }
-    .dia-util { background:#fff; }
-    .dia-fds { background:#fff5f5; color:#e03131; }
-    .dia-feriado { background:#fff9db; color:#f08c00; font-weight:bold; }
-    .dia-vazio { background:#f1f3f5; border:1px solid #dee2e6; }
-    hr { margin:4px 0!important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<meta name="google" content="notranslate">
+<style>
+html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"] { translate: no !important; }
+.caixa-texto-fix { margin-top:10px!important; font-family:sans-serif!important; font-size:14px!important; line-height:1.6!important; color:#1E1E1E!important; }
+.cal-table { width:100%; border-collapse:collapse; font-family:sans-serif; table-layout:fixed; background:#f8f9fa; border:2px solid #adb5bd; }
+.cal-header { background:#e9ecef; font-weight:bold; text-align:center; padding:8px; border:1px solid #adb5bd; font-size:14px; }
+.cal-day { height:85px; text-align:right; vertical-align:top; padding:5px; border:1px solid #adb5bd; font-size:14px; }
+.dia-util { background:#fff; }
+.dia-fds { background:#fff5f5; color:#e03131; }
+.dia-feriado { background:#fff9db; color:#f08c00; font-weight:bold; }
+.dia-vazio { background:#f1f3f5; border:1px solid #dee2e6; }
+hr { margin:4px 0!important; }
+</style>
+""", unsafe_allow_html=True)
 
-# Banco de dados
+# ============================================================
+# BANCO DE DADOS
+# ============================================================
 DB_URL = os.environ.get("DATABASE_URL", "").strip()
 if not DB_URL:
     st.error("A variável DATABASE_URL não foi configurada no Render.")
@@ -65,7 +64,9 @@ except Exception as erro:
     st.error(f"Não foi possível conectar ao banco: {erro}")
     st.stop()
 
-# Estado
+# ============================================================
+# ESTADO
+# ============================================================
 padroes = {
     "logado": False,
     "editando_id": None,
@@ -83,10 +84,6 @@ for chave, valor in padroes.items():
         st.session_state[chave] = valor
 
 
-def acao_limpar_whatsapp():
-    st.session_state.form_reset_key += 1
-
-
 def limpar_tudo():
     st.session_state.editando_id = None
     st.session_state.val_tipo = ""
@@ -96,8 +93,28 @@ def limpar_tudo():
     st.session_state.campo_key = f"k_{time.time_ns()}"
 
 
-def requisicao(metodo, url, *, json=None, data=None, files=None, timeout=(10, 30), tentativas=2):
+def limpar_whatsapp():
+    st.session_state.form_reset_key += 1
+
+# ============================================================
+# HTTP
+# ============================================================
+def requisicao(
+    metodo,
+    url,
+    *,
+    json=None,
+    data=None,
+    files=None,
+    headers=None,
+    timeout=(10, 30),
+    tentativas=2,
+):
     ultimo_erro = None
+    cabecalhos = {"User-Agent": "Agenda-CEJUSC/1.0"}
+    if headers:
+        cabecalhos.update(headers)
+
     for tentativa in range(1, tentativas + 1):
         try:
             resposta = requests.request(
@@ -106,16 +123,21 @@ def requisicao(metodo, url, *, json=None, data=None, files=None, timeout=(10, 30
                 json=json,
                 data=data,
                 files=files,
+                headers=cabecalhos,
                 timeout=timeout,
-                headers={"User-Agent": "Agenda-CEJUSC/1.0"},
             )
             return resposta, None
-        except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as erro:
+        except (
+            requests.exceptions.ConnectTimeout,
+            requests.exceptions.ReadTimeout,
+            requests.exceptions.ConnectionError,
+        ) as erro:
             ultimo_erro = erro
             if tentativa < tentativas:
-                time.sleep(3)
+                time.sleep(3 * tentativa)
         except requests.exceptions.RequestException as erro:
             return None, str(erro)
+
     return None, f"Falha após {tentativas} tentativas: {ultimo_erro}"
 
 
@@ -134,7 +156,9 @@ def testar_instancia(api_url, id_instance, api_token):
         return False, f"Resposta inválida: {resposta.text[:500]}"
     return bool(estado), estado or "Estado não informado."
 
-
+# ============================================================
+# DIALOGOS
+# ============================================================
 @st.dialog("Detalhes da Atividade", width="large")
 def exibir_detalhes(assunto, descricao):
     st.markdown(f"### {html.escape(str(assunto or ''))}")
@@ -164,7 +188,9 @@ def confirmar_exclusao(id_item, assunto):
     if c2.button("❌ Cancelar", use_container_width=True, key=f"cancelar_{id_item}"):
         st.rerun()
 
-# Login
+# ============================================================
+# LOGIN
+# ============================================================
 USUARIO_APP = os.environ.get("USUARIO_APP", "admin").strip()
 SENHA_APP = os.environ.get("SENHA_APP", "")
 if not SENHA_APP:
@@ -184,7 +210,9 @@ if not st.session_state.logado:
         st.error("Dados incorretos.")
     st.stop()
 
-# Barra lateral
+# ============================================================
+# BARRA LATERAL
+# ============================================================
 with st.sidebar:
     st.header("📝 Editar Item" if st.session_state.editando_id is not None else "📝 Novo Cadastro")
     tipos = ["", "TAREFA", "LEMBRETE", "COMPROMISSO", "INFORMAÇÃO", "CONTATO", "AUDIÊNCIA", "MODELO"]
@@ -192,11 +220,18 @@ with st.sidebar:
         indice_tipo = tipos.index(st.session_state.val_tipo)
     except ValueError:
         indice_tipo = 0
+
     tipo_sel = st.selectbox("Tipo", tipos, index=indice_tipo, key=f"sel_{st.session_state.campo_key}")
     if tipo_sel in ["", "TAREFA", "LEMBRETE", "COMPROMISSO"]:
-        dt_venc = st.date_input("Vencimento", value=st.session_state.val_prazo, format="DD/MM/YYYY", key=f"dat_{st.session_state.campo_key}")
+        dt_venc = st.date_input(
+            "Vencimento",
+            value=st.session_state.val_prazo,
+            format="DD/MM/YYYY",
+            key=f"dat_{st.session_state.campo_key}",
+        )
     else:
         dt_venc = datetime.now().date()
+
     ass_in = st.text_input("Assunto", value=st.session_state.val_assunto, key=f"ass_{st.session_state.campo_key}")
     des_in = st.text_area("Descrição", value=st.session_state.val_desc, height=250, key=f"des_{st.session_state.campo_key}")
 
@@ -225,6 +260,9 @@ with st.sidebar:
         limpar_tudo()
         st.rerun()
 
+# ============================================================
+# ABAS E DADOS
+# ============================================================
 (t_dash, t_tar, t_com, t_lem, t_info, t_cont, t_aud, t_mod, t_cal, t_wpp) = st.tabs([
     "🏠 INÍCIO", "📌 TAREFAS", "📅 COMPROMISSOS", "📝 LEMBRETES", "ℹ️ INFORMAÇÕES",
     "📞 CONTATOS", "⚖️ AUDIÊNCIAS", "📄 MODELOS", "📅 CALENDÁRIO", "📲 WHATSAPP",
@@ -249,6 +287,7 @@ def obter_estilo(prazo):
         return "gold", "🟡 PRÓXIMO"
     return "blue", "🔵 FUTURO"
 
+
 with t_dash:
     st.subheader("Visão Geral")
     colunas = st.columns(3)
@@ -260,8 +299,10 @@ with t_dash:
         figura = go.Figure(go.Bar(
             x=[contagens["blue"], contagens["gold"], contagens["red"]],
             y=["3+ dias", "1 a 2 dias", "Vencido"],
-            orientation="h", marker_color=["blue", "gold", "red"],
-            text=[contagens["blue"], contagens["gold"], contagens["red"]], textposition="outside",
+            orientation="h",
+            marker_color=["blue", "gold", "red"],
+            text=[contagens["blue"], contagens["gold"], contagens["red"]],
+            textposition="outside",
         ))
         figura.update_layout(title=f"{nome}S", height=230, margin=dict(l=10, r=50, t=40, b=10), xaxis=dict(visible=False))
         colunas[indice].plotly_chart(figura, use_container_width=True)
@@ -316,6 +357,9 @@ def listar_simples(tipo, aba, icone):
                 confirmar_exclusao(int(registro["id"]), registro["assunto"])
             st.markdown("---")
 
+# ============================================================
+# CALENDARIO
+# ============================================================
 with t_cal:
     _, centro, _ = st.columns([1, 2, 1])
     with centro:
@@ -357,24 +401,25 @@ with t_cal:
     calendario_html += "</table>"
     st.markdown(calendario_html, unsafe_allow_html=True)
 
-# WhatsApp
+# ============================================================
+# WHATSAPP: TEXTO + uploadFile + sendFileByUrl
+# ============================================================
 with t_wpp:
     st.subheader("📲 ENVIO POR WHATSAPP")
     st.markdown("---")
 
-    # O apiUrl deve ser copiado do console da sua instância GREEN-API.
-    # O padrão abaixo usa o host sem hífen, conforme o endpoint que você está testando.
     API_URL = os.environ.get("API_URL", "https://api.greenapi.com").strip().rstrip("/")
     MEDIA_URL = os.environ.get("MEDIA_URL", "https://media.greenapi.com").strip().rstrip("/")
     ID_INSTANCE = os.environ.get("ID_INSTANCE", "").strip()
     API_TOKEN = os.environ.get("API_TOKEN", "").strip()
     DESTINO = os.environ.get("MEU_NUMERO", "").strip()
 
-    st.caption(f"Servidor configurado: {API_URL}")
+    st.caption(f"Servidor de mensagens: {API_URL}")
+    st.caption(f"Servidor de arquivos: {MEDIA_URL}")
 
     st.button(
         "🗑️ LIMPAR TUDO (RESETAR TELA)",
-        on_click=acao_limpar_whatsapp,
+        on_click=limpar_whatsapp,
         use_container_width=True,
         key="btn_wpp_clear",
     )
@@ -390,10 +435,11 @@ with t_wpp:
     if submit:
         mensagens = [m.strip() for m in [m1, m2, m3, m4] if m and m.strip()]
         arquivos = arquivos or []
+
         if not mensagens and not arquivos:
             st.warning("Selecione ao menos um arquivo ou digite uma mensagem.")
-        elif not all([API_URL, ID_INSTANCE, API_TOKEN, DESTINO]):
-            st.error("Verifique API_URL, ID_INSTANCE, API_TOKEN e MEU_NUMERO no Render.")
+        elif not all([API_URL, MEDIA_URL, ID_INSTANCE, API_TOKEN, DESTINO]):
+            st.error("Verifique API_URL, MEDIA_URL, ID_INSTANCE, API_TOKEN e MEU_NUMERO no Render.")
         else:
             numero = "".join(c for c in DESTINO if c.isdigit())
             if not numero:
@@ -402,7 +448,8 @@ with t_wpp:
 
             chat_id = f"{numero}@c.us"
             url_texto = f"{API_URL}/waInstance{ID_INSTANCE}/sendMessage/{API_TOKEN}"
-            url_arquivo = f"{MEDIA_URL}/waInstance{ID_INSTANCE}/sendFileByUpload/{API_TOKEN}"
+            url_upload = f"{MEDIA_URL}/waInstance{ID_INSTANCE}/uploadFile/{API_TOKEN}"
+            url_send_file = f"{API_URL}/waInstance{ID_INSTANCE}/sendFileByUrl/{API_TOKEN}"
 
             with st.spinner("Verificando conexão com a GREEN-API..."):
                 instancia_ok, estado = testar_instancia(API_URL, ID_INSTANCE, API_TOKEN)
@@ -419,13 +466,16 @@ with t_wpp:
                 status = st.empty()
                 atual = 0
 
+                # Mensagens de texto
                 for indice, mensagem in enumerate(mensagens, start=1):
                     atual += 1
                     status.write(f"Enviando mensagem {indice} de {len(mensagens)}...")
                     resposta, erro = requisicao(
-                        "POST", url_texto,
+                        "POST",
+                        url_texto,
                         json={"chatId": chat_id, "message": mensagem},
-                        timeout=(10, 30), tentativas=2,
+                        timeout=(10, 30),
+                        tentativas=2,
                     )
                     if erro:
                         erros.append(f"Mensagem {indice}: {erro}")
@@ -441,27 +491,91 @@ with t_wpp:
                         if id_mensagem:
                             enviados += 1
                         else:
-                            erros.append(f"Mensagem {indice}: resposta sem idMessage: {resposta.text[:500]}")
+                            erros.append(f"Mensagem {indice}: resposta sem idMessage. {resposta.text[:500]}")
                     progresso.progress(atual / total)
                     time.sleep(1)
 
+                # Arquivos: uploadFile -> urlFile -> sendFileByUrl
                 for arquivo in arquivos:
                     atual += 1
-                    status.write(f"Enviando arquivo: {arquivo.name}")
-                    resposta, erro = requisicao(
-                        "POST", url_arquivo,
-                        data={"chatId": chat_id, "caption": "", "fileName": arquivo.name},
-                        files={"file": (arquivo.name, arquivo.getvalue(), arquivo.type or "application/octet-stream")},
-                        timeout=(15, 120), tentativas=2,
+                    conteudo = arquivo.getvalue()
+                    tipo_mime = arquivo.type or "application/octet-stream"
+
+                    if not conteudo:
+                        erros.append(f"Arquivo {arquivo.name}: arquivo vazio.")
+                        progresso.progress(atual / total)
+                        continue
+
+                    status.write(f"Fazendo upload do arquivo: {arquivo.name}")
+                    resposta_upload, erro_upload = requisicao(
+                        "POST",
+                        url_upload,
+                        data=conteudo,
+                        headers={
+                            "Content-Type": tipo_mime,
+                            "GA-Filename": arquivo.name,
+                        },
+                        timeout=(15, 180),
+                        tentativas=2,
                     )
-                    if erro:
-                        erros.append(f"Arquivo {arquivo.name}: {erro}")
-                    elif resposta is None or not resposta.ok:
-                        codigo = resposta.status_code if resposta is not None else "sem resposta"
-                        detalhe = resposta.text[:500] if resposta is not None else ""
-                        erros.append(f"Arquivo {arquivo.name}: HTTP {codigo}. {detalhe}")
+
+                    if erro_upload:
+                        erros.append(f"Arquivo {arquivo.name}, uploadFile: {erro_upload}")
+                        progresso.progress(atual / total)
+                        continue
+                    if resposta_upload is None or not resposta_upload.ok:
+                        codigo = resposta_upload.status_code if resposta_upload is not None else "sem resposta"
+                        detalhe = resposta_upload.text[:500] if resposta_upload is not None else ""
+                        erros.append(f"Arquivo {arquivo.name}, uploadFile: HTTP {codigo}. {detalhe}")
+                        progresso.progress(atual / total)
+                        continue
+
+                    try:
+                        url_file = resposta_upload.json().get("urlFile")
+                    except ValueError:
+                        url_file = None
+
+                    if not url_file:
+                        erros.append(
+                            f"Arquivo {arquivo.name}, uploadFile: resposta sem urlFile. "
+                            f"{resposta_upload.text[:500]}"
+                        )
+                        progresso.progress(atual / total)
+                        continue
+
+                    status.write(f"Enviando arquivo ao WhatsApp: {arquivo.name}")
+                    resposta_envio, erro_envio = requisicao(
+                        "POST",
+                        url_send_file,
+                        json={
+                            "chatId": chat_id,
+                            "urlFile": url_file,
+                            "fileName": arquivo.name,
+                            "caption": "",
+                        },
+                        timeout=(10, 60),
+                        tentativas=2,
+                    )
+
+                    if erro_envio:
+                        erros.append(f"Arquivo {arquivo.name}, sendFileByUrl: {erro_envio}")
+                    elif resposta_envio is None or not resposta_envio.ok:
+                        codigo = resposta_envio.status_code if resposta_envio is not None else "sem resposta"
+                        detalhe = resposta_envio.text[:500] if resposta_envio is not None else ""
+                        erros.append(f"Arquivo {arquivo.name}, sendFileByUrl: HTTP {codigo}. {detalhe}")
                     else:
-                        enviados += 1
+                        try:
+                            id_arquivo = resposta_envio.json().get("idMessage")
+                        except ValueError:
+                            id_arquivo = None
+                        if id_arquivo:
+                            enviados += 1
+                        else:
+                            erros.append(
+                                f"Arquivo {arquivo.name}, sendFileByUrl: resposta sem idMessage. "
+                                f"{resposta_envio.text[:500]}"
+                            )
+
                     progresso.progress(atual / total)
                     time.sleep(1)
 
@@ -473,13 +587,16 @@ with t_wpp:
                             st.write(f"• {erro}")
                 else:
                     st.success(f"Todos os {total} itens foram enviados com sucesso.")
-                    acao_limpar_whatsapp()
+                    limpar_whatsapp()
                     time.sleep(1)
                     st.rerun()
 
     st.markdown("---")
     st.caption("Uso restrito: CEJUSC - Araçatuba/SP")
 
+# ============================================================
+# LISTAGENS
+# ============================================================
 listar("TAREFA", t_tar)
 listar("COMPROMISSO", t_com)
 listar("LEMBRETE", t_lem)
