@@ -365,7 +365,7 @@ with t_wpp:
     # O apiUrl deve ser copiado do console da sua instância GREEN-API.
     # O padrão abaixo usa o host sem hífen, conforme o endpoint que você está testando.
     API_URL = os.environ.get("API_URL", "https://api.greenapi.com").strip().rstrip("/")
-    MEDIA_URL = os.environ.get("MEDIA_URL", "https://media.green-api.com").strip().rstrip("/")
+    MEDIA_URL = os.environ.get("MEDIA_URL", "https://media.greenapi.com").strip().rstrip("/")
     ID_INSTANCE = os.environ.get("ID_INSTANCE", "").strip()
     API_TOKEN = os.environ.get("API_TOKEN", "").strip()
     DESTINO = os.environ.get("MEU_NUMERO", "").strip()
